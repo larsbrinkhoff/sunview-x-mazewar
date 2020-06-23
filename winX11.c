@@ -376,7 +376,7 @@ char	**argv;
 	iconmask_pixmap = XCreatePixmap(dpy, mwWindow,
 					icon_width, icon_height, 
 					XDefaultDepth(dpy, screen));
-	XFillRectangle(dpy, iconmask_pixmap, iconGC, 
+	XFillRectangle(dpy, iconmask_pixmap, iconGC, 0, 0,
 			icon_width, icon_height);
 
 	icon_reverse_pixmap = XCreatePixmapFromBitmapData(dpy, mwWindow,
@@ -502,6 +502,11 @@ DrawViewLine(x1, y1, x2, y2)
  * by inverting the window (should make it obvious) and is now vulnerable
  * and defenseless.
  */
+
+static
+repaintWindow();
+static
+repaintIcon();
 
 void
 NextEvent(event)

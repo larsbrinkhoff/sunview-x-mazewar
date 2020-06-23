@@ -1,4 +1,4 @@
-CFLAGS = -O -DBROAD_ADDR=INADDR_BROADCAST -DBSD_43
+CFLAGS = -O -DBROAD_ADDR=INADDR_BROADCAST -DBSD_43 -m32
 OBJS = mazewar.o display.o init.o
 SRCS = mazewar.c display.c init.c
 
@@ -11,7 +11,7 @@ sun_mazewar: 	${OBJS} winSunView.o
 
 X10_mazewar:	${OBJS} winX10.o
 		${CC} ${CFLAGS} ${OBJS} winX10.o -o X10_mazewar -lX
-	
+
 X11_mazewar:	${OBJS} winX11.o
 		${CC} ${CFLAGS} ${OBJS} winX11.o -o X11_mazewar -lXt -lX11
 
@@ -20,7 +20,7 @@ saber_o:
 
 saber:		
 		#load ${CFLAGS} mazewar.c display.c init.c winX11.c -lXt -lX11
-	
+
 mazefind: 	mazefind.o
 		${CC} ${CFLAGS} mazefind.o -o mazefind
 

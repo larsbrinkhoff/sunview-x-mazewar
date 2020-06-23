@@ -131,6 +131,10 @@ char **argv;
 	play();
 }
 
+	Boolean		KBEventPending();
+
+static ratDoctor();
+
 play()
 {
 	MWEvent		event;

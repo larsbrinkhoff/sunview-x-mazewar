@@ -279,4 +279,4 @@ RatKillQ_t	RatKillQ;
 
 void	NextEvent();
 	
-char	*malloc();
+void *malloc(size_t);
