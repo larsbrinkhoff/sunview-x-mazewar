@@ -1,0 +1,59 @@
+This is Mazewar for UNIX. It is a direct descendant of the Mazewar
+played at MIT and Xerox PARC, and boasts none of the embellishments found
+in other such programs. It's basically just run, peek, and shoot; no robot
+amenuenses, teleport traps, or other such fluff.
+
+Basically, ASDF and space move you around, middle mouse shoots, left and
+right mouse let you peek around corners. Type Q to quit. Lefties may use
+the numeric pad instead of ASDF; on a DEC LK201 keyboard, the 456, row
+serves for ASDF, and the right cursor arrow is equivalent to the space bar.
+Q quits.
+
+Games are normally begun by broadcasting to find members of a game; if
+your system doesn't allow normal users to do broadcasts, you'll have to do
+something like run it setuid root (or whomever) and change findDuke$init.c
+to do a setuid(getuid()) after the broadcast. The code as distributed does a
+broadcast to INADDR_BROADCAST (all 1s); your network might still be configured
+to use INADDR_ANY (all 0s). The place to change this is in the declaration of
+CFLAGS in the Makefile.
+
+Also, the 4.3 setsockopt() call is pickier about its arguments when trying to
+enable broadcasting.  Define BSD_43 in the Makefile to compile the appropriate
+code for 4.3 and 4.3-derived systems.  The code that worked on 4.2 is still
+available for systems that might not like the new arguments.
+
+If you know you don't have broadcast ability and never will, define
+NO_BROADCAST in the Makefile, and that code will be compiled out of init.c;
+mazefind isn't touched, but it won't do anything useful. In this case, you must
+specify a duke host (the name of any host currently in a game will do) or the
+players won't be able to find each other. 
+
+In each game there is one player who is designated the "duke" and manages
+the joining and leaving of other players. When starting a game, if you
+wish to join a specific game, especially one on a different net, you may
+specify the name of the duke host, which will be contacted directly. This
+has not been extensively tested. Games across long network delays might be
+pretty strange...
+
+If you enjoy this program and keep it, please send a picture post card to me:
+
+Chris Kent
+DEC Western Research Lab
+100 Hamilton Avenue
+Palo Alto, CA 94301
+
+Include your ArpaNet or UUCP mailing address and I'll keep you informed 
+of updates.
+
+December, 1986
+
+Bob Brown, Malcolm Slaney, and Mike Yang deserve a long round of applause for
+having ported to new window systems.  We've tested it on a lot of
+architectures, but byte- or bit-order bugs may still be lurking.  Note that
+there is conditional code in the X11 driver to not use server-resident bitmaps
+if your server doesn't do them right (this was designed for the QDSS).
+
+Have fun,
+chris
+
+August, 1988
