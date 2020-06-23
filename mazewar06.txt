@@ -1,0 +1,1067 @@
+Path: utzoo!utgpu!jarvis.csri.toronto.edu!mailrus!iuvax!rutgers!aramis.rutgers.edu!mcgrew
+From: mcg...@aramis.rutgers.edu (Charles Mcgrew)
+Newsgroups: comp.sources.sun
+Subject: v01i002:  Sunview/X Mazewar, Part06/06
+Message-ID: <May.5.13.35.43.1989.12542@aramis.rutgers.edu>
+Date: 5 May 89 17:35:44 GMT
+Organization: Rutgers Univ., New Brunswick, N.J.
+Lines: 1057
+Approved: mcg...@aramis.rutgers.edu
+
+Submitted-by: ke...@wsl.dec.com
+Posting-number: Volume 1, Issue 2
+Archive-name: mazewar/part06
+
+#!/bin/sh
+sed 's/^X//' >./winX11.c << 'xxFUNNYxx'
+X/* $Header: winX11.c,v 1.30 89/02/24 16:29:44 kent Exp $ */
+X
+X/* 
+X * window_X11.c - Window-system specific routines for X11
+X * 
+X * Author:	Mike Yang
+X * 		Western Research Laboratory
+X *	 	Digital Equipment Corporation
+X * Date:	Mon Jul 25 1988
+X */
+X
+X/***********************************************************
+XCopyright 1988 by Digital Equipment Corporation, Maynard, Massachusetts,
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital not be
+Xused in advertising or publicity pertaining to disstribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X/* 
+X * It is intended that this file presents a window system-independent
+X * set of routines to MazeWar; that is, if you want to run MW under
+X * another window system, this is the only file that needs to be
+X * changed. It isn't yet clear how well I've succeeded, but it's a start.
+X * 
+X * Routines that are presented to the outside are capitalized; local
+X * routines are not.
+X */
+X
+X/*#define	USE_BITMAPS	/* turn on if you know CopyPlanes works */
+X
+X/*
+X * $Log:	winX11.c,v $
+X * Revision 1.30  89/02/24  16:29:44  kent
+X * Changed inversion code to use GXxor instead of GXcopyInverted. Makes
+X * the code a little cleaner, and Joel says it'll run slightly 
+X * faster (big deal).
+X * 
+X * Revision 1.29  89/02/24  16:18:51  kent
+X * Fixed a number of problems with the icon flashing code.
+X * 
+X * Revision 1.28  89/02/23  10:10:25  kent
+X * Changed to X11 format bitmaps.
+X * 
+X * Revision 1.27  89/02/22  17:28:08  kent
+X * Make the cursor bitmap files internal, instead of trying to read
+X * them at runtime (!). Requires some byteswapping on MSBFirst machines.
+X * 
+X * Revision 1.26  89/01/18  17:26:46  kent
+X * Set class hints for the window so the window manager does
+X * the right thing.
+X * 
+X * Revision 1.25  88/09/07  10:49:07  kent
+X * Many changes in the name of portability.
+X * 
+X * Revision 1.24  88/08/12  11:01:24  kent
+X * Cleaned up image code.
+X * 
+X * Revision 1.22  88/08/11  08:48:44  kent
+X * Put Bitmap/CopyPlane code in for those that can use it.
+X * 
+X * Revision 1.21  88/08/10  16:41:08  kent
+X * Changed rats to be an XImage that I put. Fixed xor so it works properly
+X * on ANY sex display.
+X * 
+X * Revision 1.20  88/08/10  11:16:55  kent
+X * Eliminated use of keycodes in input event mapping. 
+X * 
+X * Revision 1.19  88/08/09  20:19:33  kent
+X * Changed the mazePixmap to use an XImage and always put the bits
+X * remotely. Amazingly enough, the performance is a lot better, and
+X * the startup delay is a lot less.
+X * 
+X * Revision 1.18  88/08/09  19:42:32  kent
+X * Sped up arrow display code (HackMazeBitmap). Previously was creating
+X * a Pixmap (and not destroying it!) every time -- costing a round trip
+X * for each call. Changed it to Create/Put/Destroy an XImage, which
+X * costs a little locally, but no round trips. Big difference!
+X * 
+X * Also some general code cleanup.
+X * 
+X * Revision 1.17  88/07/25  18:18:27  kent
+X * Switch to zero-width lines. Much faster.
+X * 
+X * Revision 1.16  88/07/25  09:12:40  mikey
+X * cleanup source
+X * 
+X * Revision 1.15  88/07/25  09:01:54  mikey
+X * Coalesced line drawing requests, fixed depth bugs
+X * 
+X * Revision 1.14  88/07/20  11:53:26  mikey
+X * moved code from StartWindow to InitWindow so as to eliminate timeout
+X * problems with ratDoctor.
+X * 
+X * Revision 1.13  88/06/21  09:24:51  mikey
+X * Fixed some bugs in the previous version.  FocusIn doesn't
+X * do anything now if an Expose event is in the queue at all.
+X * 
+X * Revision 1.12  88/06/20  16:52:35  mikey
+X * Use XCheckIfEvent to reduce duplication if focusin and expose events
+X * follow each other, eliminated use of GXcopyInverted and instead
+X * set foreground and background, tried to eliminate buttonpress
+X * effect when selecting window.
+X * 
+X * Revision 1.11  88/06/20  10:01:06  mikey
+X * Inverts display when input focus is not in the window.  A lot of
+X * updating... maybe it can be reduced.
+X * 
+X * Revision 1.10  88/06/19  15:16:18  mikey
+X * Handles 32x32 bitmap for X11 and eliminated kludges for wm.
+X * Currently flashes icon depending on input focus.  Should
+X * change to depending on open/closed.
+X * 
+X * Revision 1.9  88/06/17  14:53:12  mikey
+X * Flashing icon on focus events
+X * 
+X * Revision 1.8  88/06/17  12:48:52  mikey
+X * Icon fixed for color (gpx) displays.
+X * 
+X * Revision 1.7  88/06/17  11:35:41  mikey
+X * fixed inverted bitmaps on vs100, eliminated blob, created icon
+X * for monochrome wm.  icon still messed for gpx.
+X * 
+X * Revision 1.6  88/06/17  10:47:31  mikey
+X * undid invertDisplay because of problems with screen saver and with
+X * window exposure/update.  other problems: blob in upperleft of\
+X * maze on vs100, inverted bitmaps on vs100, unsuccessful creation
+X * of 32x32 icon [oxmap.
+X * 
+X * Revision 1.5  88/06/16  16:09:30  mikey
+X * replaced most uses of XCreateBitmap with XCreatePixmapFromBitmapData
+X * to solve vs100 problems.  still have negated-black/white problems
+X * with bitmaps and vs100.
+X * 
+X * Revision 1.4  88/06/16  15:29:55  mikey
+X * disabled icon flashing, fixed inverting problems, still have to
+X * fix vs100 bitmap display
+X * 
+X * Revision 1.3  88/06/15  11:40:05  mikey
+X * before trying to fix icon window
+X * 
+X */
+X
+X#ifndef	lint
+Xstatic char rcs_ident[] = "$Header: winX11.c,v 1.30 89/02/24 16:29:44 kent Exp $";
+X#endif
+X
+X#include <X11/Xos.h>
+X#include <X11/Xlib.h>
+X#include <X11/Xutil.h>
+X#include <X11/Xatom.h>
+X#include <X11/Xresource.h>
+X#include <X11/StringDefs.h>
+X
+X#include <sys/types.h>
+X#include <sys/time.h>
+X
+X#include <netinet/in.h>
+X
+X#include <errno.h>
+X#include <pwd.h>
+X#include <stdio.h>
+X#include <strings.h>
+X
+X#include "mazewar.h"
+X#undef	Boolean
+X
+X#include <X11/Intrinsic.h>
+X
+X#define	VIEW_X_DIM	400
+X#define	VIEW_Y_DIM	400
+X#define	VIEW_X_ORIGIN	100
+X#define	VIEW_Y_ORIGIN	50
+X#define	MAZE_X_DIM	(MAZEXMAX*16)
+X#define	MAZE_Y_DIM	(MAZEYMAX*16)
+X#define	MAZE_X_ORIGIN	48
+X#define	MAZE_Y_ORIGIN	451
+X#define	SCORE_X_DIM	192
+X#define	SCORE_Y_DIM	((scoreFontInfo->max_bounds.ascent + scoreFontInfo->max_bounds.descent) * MAXRATS)
+X#define	SCORE_X_ORIGIN	208
+X#define	SCORE_Y_ORIGIN	708
+X#define	MIN_X_DIM	608		/* see comments for InitWindow() */
+X#define	MIN_Y_DIM	SCORE_Y_ORIGIN	/* see InitWindow() */
+X
+X#define DEFAULT_FONT "8x13"
+X#define DEFAULT_POSITION "%dx%d+0+0"	/* upper left hand corner */
+X
+X#define ICON_FLASH_PERIOD 4
+X
+Xshort	mazeBits[MAZEXMAX*MAZEYMAX*16];	/* shorts better be 16 bits! */
+XWindow	mwWindow;			/* parent window */
+X#ifdef	USE_BITMAPS
+XPixmap	mazeBitmap;			/* the maze */
+XPixmap	ratsBitmap;			/* the rats */
+X#else
+XXImage	*ratsImage;			/* the rats */
+XXImage	*mazeImage;			/* the maze */
+X#endif	USE_BITMAPS
+XPixmap	iconMask;			/* mask for icon outline */
+XXFontStruct	*scoreFontInfo;
+XBoolean	mapped =	FALSE;		/* should really display? */
+XBoolean	flashIcon =	FALSE;		/* should icon be flashing? */
+XBoolean	iconInverted =	FALSE;		/* icon should be/is inverted */
+Xint	displayFD;			/* fd of display for events */
+X
+XPixel		fg_pixel;		/* color of lines and such */
+XPixel		bg_pixel;		/* color of background */
+XPixel		mouseground;		/* mouse cursor color */
+XFont		scoreFont;		/* font for printing scores */
+XPixel		borderColor;
+XCardinal	borderWidth;
+X
+XDisplay	*dpy;				/* display used */
+Xint	screen;				/* screen on the display */
+Xunsigned int	cur_width, cur_height;	/* current width, height of window */
+XGC	copyGC, xorGC;			/* graphics contexts for window */
+XPixmap	icon_pixmap, iconmask_pixmap;	/* icon, mask bitmaps */
+XPixmap	icon_reverse_pixmap;
+Xint	icon_flash = 0;
+XXImage	*arrowImage;
+X
+X#include "bitmaps/icon.ic"
+X#include "bitmaps/rat.cur"
+X#include "bitmaps/ratMask.cur"
+X#include "bitmaps/dRat.cur"
+X#include "bitmaps/dRatMask.cur"
+X#include "bitmaps/cup.cur"
+X
+Xstatic Cursor	ratCursor, deadRatCursor, hourGlassCursor;
+X
+Xextern char	*getenv();
+Xextern int	errno;
+X
+Xstatic char	*progName;
+X
+XPixmap		xCreateBitmapFromBitCell();
+X
+Xstatic XrmOptionDescRec opTable[] = {
+X{"-mouse",	"*mouseColor",	XrmoptionSepArg,	(caddr_t) NULL},
+X};
+X
+X#define	XtNmouse	"mouse"
+X
+Xint	zero = 0;
+Xint	one = 1;
+X
+Xstatic XtResource resources[] = {
+X	{XtNforeground, XtCForeground, XtRPixel, sizeof(Pixel),
+X	 (Cardinal)&fg_pixel, XtRString, "black"},
+X	{XtNbackground, XtCBackground, XtRPixel, sizeof(Pixel),
+X	 (Cardinal)&bg_pixel, XtRString, "white"},
+X	{XtNmouse, XtCCursor, XtRPixel, sizeof(Pixel),
+X	 (Cardinal)&mouseground, XtRString, "black"},
+X	{XtNfont, XtCFont, XtRFont, sizeof(Font),
+X	 (Cardinal)&scoreFont, XtRString, DEFAULT_FONT}, 
+X	{XtNborderWidth, XtCBorderWidth, XtRInt, sizeof(int),
+X	 (Cardinal)&borderWidth, XtRInt, (caddr_t) &one},
+X	{XtNborder, XtCBorderColor, XtRPixel, sizeof(Pixel),
+X	 (Cardinal)&borderColor, XtRString, "black"},
+X};
+X
+X/* 
+X * ALL COORDINATES ASSUME ORIGIN (0,0) AT UPPER LEFT!
+X */
+X
+X/* 
+X * Initialize the window. The overall window must be at least 608x by
+X * 808y (the size of the Alto screen). There are three distinct
+X * subregions:
+X *	A 400x by 400y area for the view, beginning at (100,50)
+X *	A 512x by 256y area for the maze, beginning at (48, 451)
+X *	A 192x by 96y area for the score lines, at (208, 706)
+X *
+X *	Actually, the y dimension of both the whole window and the score
+X *	subwindow must be enough to accommodate MAXRATS lines of the
+X *	height of the scoreFont.
+X */
+X
+X/* parse arguments and set up window state */
+X
+XInitWindow(argc, argv)
+Xchar	**argv;
+X{
+X	XGCValues gc_values;
+X	XWMHints wmhints;
+X	Widget	w;
+X	XClassHint	classHint;
+X	GC	iconGC;
+X
+X	progName = rindex(argv[0], '/');
+X	if (progName)
+X		progName++;
+X	else
+X		progName = argv[0];
+X
+X	/*
+X	 * We cheat here by using the Toolkit to do the initialization work.
+X	 * We just ignore the top-level widget that gets created.
+X	 */
+X
+X	w = XtInitialize("mazewar", "mazewar", opTable, XtNumber(opTable), 
+X			&argc, argv);
+X
+X	dpy = XtDisplay(w);
+X	screen = DefaultScreen(dpy);
+X
+X	XtGetApplicationResources(w, (caddr_t) NULL, resources, 
+X				XtNumber(resources), NULL, (Cardinal) 0);
+X	
+X	if (!scoreFont)
+X		MWError("cannot open font");
+X	scoreFontInfo = XQueryFont(dpy, scoreFont);
+X
+X        cur_width = MIN_X_DIM;
+X        cur_height = MIN_Y_DIM + (MAXRATS+1) *
+X	             (scoreFontInfo->max_bounds.ascent +
+X		      scoreFontInfo->max_bounds.descent);
+X
+X	mwWindow = XCreateSimpleWindow(dpy, 
+X					RootWindow(dpy, screen),
+X					0, 0, 
+X					cur_width, cur_height,
+X					borderWidth, 0, bg_pixel);
+X	XStoreName(dpy, mwWindow, "MazeWar");
+X	XSetIconName(dpy, mwWindow, "MazeWar");
+X	classHint.res_name = "mazewar";
+X	classHint.res_class = "mazewar";
+X	XSetClassHint(dpy, mwWindow, &classHint);
+X
+X	gc_values.function = GXcopy;
+X	gc_values.foreground = fg_pixel;
+X	gc_values.background = bg_pixel;
+X	gc_values.font = scoreFont;
+X	gc_values.line_width = 0;
+X	copyGC = XCreateGC(dpy, mwWindow,
+X		       GCFunction | GCForeground | GCBackground
+X		       | GCLineWidth | GCFont,
+X		       &gc_values);
+X
+X	gc_values.function = GXxor;
+X	gc_values.plane_mask = AllPlanes;
+X	gc_values.foreground = fg_pixel ^ bg_pixel;
+X	gc_values.background = 0;
+X	xorGC = XCreateGC(dpy, mwWindow,
+X		       GCFunction | GCForeground | GCBackground | GCPlaneMask,
+X		       &gc_values);
+X
+X	icon_pixmap = XCreatePixmapFromBitmapData(
+X			dpy, mwWindow, 
+X			icon_bits, 
+X			icon_width, icon_height, 
+X			fg_pixel, bg_pixel, 
+X			XDefaultDepth(dpy, screen));
+X
+X	/* is this even used? */
+X	gc_values.function = GXclear;
+X	gc_values.plane_mask = AllPlanes;
+X	iconGC = XCreateGC(dpy, mwWindow, 
+X			GCFunction | GCPlaneMask, 
+X			&gc_values);
+X	iconmask_pixmap = XCreatePixmap(dpy, mwWindow,
+X					icon_width, icon_height, 
+X					XDefaultDepth(dpy, screen));
+X	XFillRectangle(dpy, iconmask_pixmap, iconGC, 
+X			icon_width, icon_height);
+X
+X	icon_reverse_pixmap = XCreatePixmapFromBitmapData(dpy, mwWindow,
+X						  icon_bits,
+X						  icon_width, icon_height,
+X						  bg_pixel, fg_pixel, 
+X						  XDefaultDepth(dpy, screen));
+X
+X        wmhints.flags = IconPixmapHint | IconMaskHint;
+X        wmhints.icon_pixmap = icon_pixmap;
+X        wmhints.icon_mask = iconmask_pixmap;
+X        XSetWMHints(dpy, mwWindow, &wmhints);
+X
+X	initCursors();
+X	arrowImage = XCreateImage(dpy, DefaultVisual(dpy, DefaultScreen(dpy)),
+X				1, XYBitmap, 0, NULL, 
+X				16, 16, 8, 2);
+X	arrowImage->byte_order = MSBFirst;
+X	arrowImage->bitmap_bit_order = MSBFirst;
+X}
+X
+X/* 
+X * actually start the display up, after all the user interaction has
+X * been done.
+X */
+X
+XStartWindow(ratBits, ratWidth, ratHeight)
+Xshort	*ratBits;
+X{
+X	XSelectInput(dpy, mwWindow, KeyPressMask | ButtonPressMask |
+X		                    ButtonReleaseMask |  ExposureMask |
+X				    StructureNotifyMask | FocusChangeMask);
+X	HourGlassCursor();
+X
+X	initMaze();
+X	SwapBitmaps();
+X
+X	displayFD = XConnectionNumber(dpy);
+X
+X	XMapWindow(dpy, mwWindow);		/* Map window to screen */
+X	initRats(ratBits, ratWidth, ratHeight);
+X}
+X
+X/*
+X * Shut down the window system, resetting any terminal modes or what
+X * have you that may have been altered. No-op for X11.
+X */
+X
+XStopWindow()
+X{
+X	
+X}
+X
+X/* 
+X * Clear out the view subwindow. If possible, delay the visible effect
+X * until all the lines have been drawn (since this is only called by
+X * ShowView(), which is about to draw a bunch of lines).
+X */
+X
+XClearView()
+X{
+X	XClearArea(dpy, mwWindow, VIEW_X_ORIGIN, VIEW_Y_ORIGIN,
+X		       VIEW_X_DIM, VIEW_Y_DIM, False);
+X}
+X
+X/*
+X * Flash the view window to indicate a hit on an opponent.
+X */
+X
+XFlashTop()
+X{
+X	XFillRectangle(dpy, mwWindow, xorGC, 
+X		VIEW_X_ORIGIN, VIEW_Y_ORIGIN, 
+X		VIEW_X_DIM, VIEW_Y_DIM);
+X	XFlush(dpy);
+X
+X	/* might want some delay here */
+X
+X	XFillRectangle(dpy, mwWindow, xorGC, 
+X		VIEW_X_ORIGIN, VIEW_Y_ORIGIN, 
+X		VIEW_X_DIM, VIEW_Y_DIM);
+X	XFlush(dpy);
+X}
+X
+X/*
+X * Flash the whole window to indicate we were hit.
+X */
+X
+XFlashScreen()
+X{
+X	XFillRectangle(dpy, mwWindow, xorGC, 0, 0, cur_width, cur_height);
+X	XFlush(dpy);
+X
+X	/* might want some delay here */
+X
+X	XFillRectangle(dpy, mwWindow, xorGC, 0, 0, cur_width, cur_height);
+X	XFlush(dpy);
+X}
+X
+X/* 
+X * Draw a line in the view subwindow. Don't show it right away if possible.
+X */
+X
+XDrawViewLine(x1, y1, x2, y2)
+X{
+X	XDrawLine(dpy, mwWindow, copyGC, x1+VIEW_X_ORIGIN, y1+VIEW_Y_ORIGIN,
+X		  x2+VIEW_X_ORIGIN, y2+VIEW_Y_ORIGIN);
+X}
+X
+X/* 
+X * Event handling. Presents a uniform event interface to the game, and
+X * handles all other events in here. The game only sees the events
+X * that affect it directly, as defined in mazewar.h. They are:
+X *
+X *	keypresses that affect the game
+X *	mouse button clicks
+X *	incoming network packets
+X *	timeouts (there's a "heartbeat" to drive the shot clock)
+X *
+X * All other events should be swallowed by this routine. Also, since
+X * keyboard focus is dependent on the mouse being in the game window,
+X * try to let the user know that he's wandered outside the window
+X * by inverting the window (should make it obvious) and is now vulnerable
+X * and defenseless.
+X */
+X
+Xvoid
+XNextEvent(event)
+XMWEvent	*event;
+X{
+X	int	fdmask;
+X	XEvent	xev;
+X	struct timeval timeout;
+X	int	ret;
+X	char	c;
+X
+X    while (1) {
+X	icon_flash = (++icon_flash) % ICON_FLASH_PERIOD;
+X
+X	if (!XPending(dpy))	/* this does an XFlush, too */
+X		if (flashIcon && !icon_flash && !mapped) {
+X			/* invert the icon  */
+X			iconInverted = !iconInverted;
+X			repaintIcon();
+X		}
+X
+X	/*
+X	 * Look for events.  Try to arrange that X events have priority over
+X	 * network traffic.  See if there's an X event pending.  If so, check
+X	 * for a net event, too; if not, select on both the network and the X
+X	 * connection.  If that doesn't time out, but there's no X event
+X	 * pending, try again, just selecting on the X connection.  If that
+X	 * times out, let the network event get processed.
+X	 *
+X	 * Can't just select on the two fds, because there may be X events
+X	 * pending in the queue that have already been read.
+X	 *
+X	 * This may look baroque, but we've seen some instances where X server
+X	 * latency seems to let the network events take priority over sever
+X	 * events, leading to sluggish keyboard response and lots of local
+X	 * death.
+X	 *
+X	 * Also, can't just ignore network events -- if the server is slow and
+X	 * lots of X events get queued, someone else's ratDoctor will time you
+X	 * out if you never answer.
+X	 */
+X
+X	if (!XPending(dpy)) {
+X		fdmask = (1 << displayFD) | (1 << M.theSocket);
+X		timeout.tv_sec = 0;
+X		timeout.tv_usec = 500000;
+X		while ((ret = select(32, &fdmask, NULL, NULL, &timeout)) == -1)
+X			if (errno != EINTR)
+X				MWError("select error on events");
+X		if (ret == 0) {
+X			event->eventType = EVENT_TIMEOUT;
+X			return;
+X		}
+X	} else {
+X		fdmask = 1 << M.theSocket;
+X		timeout.tv_sec = 0;
+X		timeout.tv_usec = 0;
+X		while ((ret = select(32, &fdmask, NULL, NULL, &timeout)) == -1)
+X			if (errno != EINTR)
+X				MWError("select error on events");
+X	}
+X	if (XPending(dpy)) {
+X		XNextEvent(dpy, &xev);
+X		switch (xev.type) {
+X		case KeyPress:
+X			event->eventType = 0;
+X			XLookupString((XKeyEvent *) &xev, &c, 1, 
+X					NULL, NULL);
+X			
+X			switch(c) {
+X			case 'a':
+X			case '4':	/* keypad */
+X				event->eventType = EVENT_A;
+X				return;
+X
+X			case 's':
+X			case '5':
+X				event->eventType = EVENT_S;
+X				return;
+X
+X			case 'd':
+X			case '6':
+X				event->eventType = EVENT_D;
+X				return;
+X
+X			case 'f':
+X			case ',':
+X				event->eventType = EVENT_F;
+X				return;
+X
+X			case ' ':
+X			case '\033':	/* ESC lead in of arrow */
+X				event->eventType = EVENT_BAR;
+X				return;
+X
+X			case 'i':
+X				event->eventType = EVENT_I;
+X				return;
+X
+X			case 'k':
+X				event->eventType = EVENT_K;
+X				return;
+X
+X			case 'o':
+X				event->eventType = EVENT_O;
+X				return;
+X
+X			case 'l':
+X				event->eventType = EVENT_L;
+X				return;
+X
+X			case 'q':
+X			case '\177':	/* DEL */
+X			case '\003':	/* ^C */
+X				event->eventType = EVENT_INT;
+X				return;
+X			}
+X			break;
+X
+X#define	RightButton	Button3
+X#define	MiddleButton	Button2
+X#define	LeftButton	Button1
+X		case ButtonPress:
+X			event->eventType = 0;
+X			switch(((XButtonPressedEvent *) 
+X				&xev)->button & 0xff) {
+X			case RightButton:
+X				event->eventType = EVENT_RIGHT_D;
+X				return;
+X
+X			case MiddleButton:
+X				event->eventType = EVENT_MIDDLE_D;
+X				return;
+X
+X			case LeftButton:
+X				event->eventType = EVENT_LEFT_D;
+X				return;
+X			}
+X			break;
+X
+X		case ButtonRelease:
+X			event->eventType = 0;
+X			switch(((XButtonReleasedEvent *) 
+X				&xev)->button&0xff) {
+X			case RightButton:
+X				event->eventType = EVENT_RIGHT_U;
+X				return;
+X
+X			case LeftButton:
+X				event->eventType = EVENT_LEFT_U;
+X				return;
+X			}
+X			break;
+X
+X		case Expose:
+X			repaintWindow();
+X			break;
+X
+X		case FocusIn:
+X		case MapNotify:
+X			mapped = TRUE;
+X			iconInverted = FALSE;
+X			flashIcon = FALSE;
+X			repaintIcon();
+X			break;
+X
+X		case FocusOut:
+X		case UnmapNotify:
+X			mapped = FALSE;
+X			break;
+X		}
+X	}
+X
+X	if (fdmask & (1 << M.theSocket)) {
+X		int fromLen = sizeof(event->eventSource);
+X		int cc;
+X
+X		event->eventType = EVENT_NETWORK;
+X		cc = recvfrom(M.theSocket, event->eventDetail,
+X			sizeof(RatPacket), 0, &event->eventSource, &fromLen);
+X		if (cc <= 0) {
+X			if (cc < 0 && errno != EINTR)
+X				perror("event recvfrom");
+X			continue;
+X		}
+X		if (fromLen != sizeof(struct sockaddr_in))
+X			continue;
+X		ConvertIncoming(event->eventDetail);
+X		return;
+X	}
+X    }
+X}
+X
+X
+X/* 
+X * Peek to see if there's a keyboard event waiting, in case the
+X * program wants to short-circuit some code. If your system won't let
+X * you implement this feature easily, just always return FALSE.
+X */
+X
+XBoolean
+XKBEventPending()
+X{
+X        return (XPending(dpy) != 0);
+X}
+X
+X/* Please stand by ... */
+X
+XHourGlassCursor()
+X{
+X	XDefineCursor(dpy, mwWindow, hourGlassCursor);
+X	XFlush(dpy);
+X}
+X
+X/* Let the games begin! */
+XRatCursor()
+X{
+X	XDefineCursor(dpy, mwWindow, ratCursor);
+X	XFlush(dpy);
+X}
+X
+X/* He's dead, Jim ... or might be */
+XDeadRatCursor()
+X{
+X	XDefineCursor(dpy, mwWindow, deadRatCursor);
+X	XFlush(dpy);
+X}
+X
+X/* 
+X * Update the displayed bitmap. Would really like to store the arrow bitmaps
+X * remotely, but the non-normal ones (especially otherArrows) may change. 
+X */
+X
+XHackMazeBitmap(x, y, newBits)
+XBitCell *newBits;
+X{
+X	arrowImage->data = (char *)newBits;
+X	XPutImage(dpy, mwWindow, copyGC, arrowImage, 0, 0, 
+X			  x*16 + MAZE_X_ORIGIN, y*16 + MAZE_Y_ORIGIN, 
+X			  16, 16);
+X}
+X
+X/*
+X * Display a rat.  Width, height, srcX and srcY describe the subbitmap in the
+X * rats bitmap that is the desired view of the opponent.
+X */
+X
+XDisplayRatBitmap(screenX, screenY, width, height, srcX, srcY)
+X{
+X#ifdef	USE_BITMAPS
+X	XCopyPlane(dpy, ratsBitmap, mwWindow, xorGC, srcX, srcY,
+X		  width, height,
+X		  screenX+VIEW_X_ORIGIN, screenY+VIEW_Y_ORIGIN, 1);
+X#else
+X	XPutImage(dpy, mwWindow, xorGC, ratsImage, srcX, srcY, 
+X		  screenX+VIEW_X_ORIGIN, screenY+VIEW_Y_ORIGIN,
+X		  width, height);
+X#endif	USE_BITMAPS
+X}
+X
+X/* 
+X * Display the score line for the indicated player. Name is left
+X * justified, score is right justified within the score window.
+X */
+X
+XWriteScoreString(rat)
+XRatId	rat;
+X{
+X	char	buf[64];
+X	int	leftEdge;
+X
+X	sprintf(buf, "%d", (unsigned int) M.ratcb.rats[rat].score);
+X
+X	XClearArea(dpy, mwWindow, SCORE_X_ORIGIN,
+X		   SCORE_Y_ORIGIN +
+X		   rat * (scoreFontInfo->max_bounds.ascent +
+X			  scoreFontInfo->max_bounds.descent),
+X		   SCORE_X_DIM,
+X		   (scoreFontInfo->max_bounds.ascent +
+X		    scoreFontInfo->max_bounds.descent),
+X		   FALSE);
+X	XDrawImageString(dpy, mwWindow, copyGC, SCORE_X_ORIGIN,
+X			 SCORE_Y_ORIGIN +
+X			 rat * (scoreFontInfo->max_bounds.ascent +
+X				scoreFontInfo->max_bounds.descent) +
+X			 scoreFontInfo->max_bounds.ascent,
+X			 M.ratcb.rats[rat].name, strlen(M.ratcb.rats[rat].name));
+X	leftEdge = SCORE_X_DIM - XTextWidth(scoreFontInfo, buf, strlen(buf));
+X	XDrawImageString(dpy, mwWindow, copyGC, leftEdge+SCORE_X_ORIGIN,
+X			 SCORE_Y_ORIGIN +
+X			 rat * (scoreFontInfo->max_bounds.ascent +
+X				scoreFontInfo->max_bounds.descent) +
+X			 scoreFontInfo->max_bounds.ascent,
+X			 buf, strlen(buf));
+X}
+X
+X/* 
+X * Clear out the score line for a player that's left the game.
+X */
+X
+XClearScoreLine(rat)
+XRatId	rat;
+X{
+X	XClearArea(dpy, mwWindow, SCORE_X_ORIGIN,
+X		       SCORE_Y_ORIGIN +
+X		       rat * (scoreFontInfo->max_bounds.ascent +
+X			      scoreFontInfo->max_bounds.descent),
+X		       SCORE_X_DIM,
+X		       scoreFontInfo->max_bounds.ascent +
+X		         scoreFontInfo->max_bounds.descent, False);
+X}
+X
+X/* 
+X * Pretty obvious, eh? Means the guy's in sight.
+X */
+X
+XInvertScoreLine(rat)
+XRatId	rat;
+X{
+X	XFillRectangle(dpy, mwWindow, xorGC, 
+X		  SCORE_X_ORIGIN,
+X		  SCORE_Y_ORIGIN +
+X		  rat * (scoreFontInfo->max_bounds.ascent +
+X			 scoreFontInfo->max_bounds.descent),
+X		  SCORE_X_DIM,
+X		  scoreFontInfo->max_bounds.ascent +
+X		  scoreFontInfo->max_bounds.descent);
+X}
+X
+X/* 
+X * Let the user know that a new player joined. This really should only
+X * take effect if the window is iconic, so you can keep a game around
+X * all day, close it up when there's no activity, and know when
+X * someone else is also out to kill some time.
+X */
+X
+XNotifyPlayer()
+X{
+X	flashIcon = TRUE;
+X}
+X
+X/*
+X * END PUBLIC ROUTINES
+X */
+X
+X/* set up needed bitmaps in the server */
+X
+XinitCursors()
+X{
+X        Pixmap	p, m;
+X	XColor	mc, bc;
+X
+X	mc.pixel = mouseground;
+X	bc.pixel = bg_pixel;
+X	mc.flags = DoRed | DoGreen | DoBlue;
+X	bc.flags = DoRed | DoGreen | DoBlue;
+X	XQueryColor(dpy, DefaultColormap(dpy, screen), &mc);
+X	XQueryColor(dpy, DefaultColormap(dpy, screen), &bc);
+X
+X	m = XCreateBitmapFromData(dpy, mwWindow, 
+X		(char *)ratMask_bits, 
+X		ratMask_width, ratMask_height);
+X	p = XCreateBitmapFromData(dpy, mwWindow, 
+X		(char *)rat_bits, 
+X		rat_width, rat_height);
+X	ratCursor = XCreatePixmapCursor(dpy, p, m, &mc, &bc, 
+X		rat_x_hot, rat_y_hot);
+X
+X	m = XCreateBitmapFromData(dpy, mwWindow, 
+X		(char *)dRatMask_bits, 
+X		dRatMask_width, dRatMask_height);
+X	p = XCreateBitmapFromData(dpy, mwWindow, 
+X		(char *)dRat_bits, 
+X		dRat_width, dRat_height);
+X	deadRatCursor = XCreatePixmapCursor(dpy, p, m, &mc, &bc, 0, 0);
+X
+X	p = XCreateBitmapFromData(dpy, mwWindow, 
+X		(char *)cup_bits,
+X		cup_width, cup_height);
+X	hourGlassCursor = XCreatePixmapCursor(dpy, p, p, &mc, &bc, 0, 0);
+X}
+X
+X/*
+X * construct an XImage of the maze.
+X */
+X
+XinitMaze()
+X{
+X	register int	i, j, k, line, index;
+X
+X	for (i = 0; i < MAZEYMAX; i++) {
+X		line = i * MAZEXMAX * MAZEYMAX;
+X		for (j = 0; j < MAZEXMAX; j++) {
+X			index = line + j;
+X			for (k = 0; k < 16; k++) {
+X				if (M.maze[j].y[i])
+X					mazeBits[index] = 0177777;
+X				else
+X					mazeBits[index] = 0;
+X				index += 32;
+X			}
+X					
+X		}
+X	}
+X
+X#ifdef	USE_BITMAPS
+X	mazeBitmap = xCreateBitmapFromBitCell(dpy, mwWindow, (char *) mazeBits,
+X					MAZE_X_DIM, MAZE_Y_DIM);
+X	if (mazeBitmap == 0)
+X#else
+X	mazeImage = XCreateImage(dpy, DefaultVisual(dpy, DefaultScreen(dpy)),
+X				1, XYBitmap, 0, mazeBits, 
+X				MAZE_X_DIM, MAZE_Y_DIM, 8, MAZE_X_DIM>>3);
+X	mazeImage->byte_order = MSBFirst;
+X	mazeImage->bitmap_bit_order = MSBFirst;
+X
+X	if (mazeImage == 0)
+X#endif	USE_BITMAPS
+X		MWError("Can't create maze Pixmap");
+X}
+X
+X/*
+X * actually put the maze Pixmap on the screen. 
+X */
+X
+XdrawMaze()
+X{
+X#ifdef	USE_BITMAPS
+X	XCopyPlane(dpy, mazeBitmap, mwWindow, copyGC, 0, 0, 
+X			MAZE_X_DIM, MAZE_Y_DIM, 
+X			MAZE_X_ORIGIN, MAZE_Y_ORIGIN, 1);
+X#else
+X	XPutImage(dpy, mwWindow, copyGC, mazeImage, 0, 0, 
+X			MAZE_X_ORIGIN, MAZE_Y_ORIGIN,
+X			MAZE_X_DIM, MAZE_Y_DIM);
+X#endif	USE_BITMAPS
+X}
+X
+X/*
+X * Create the bitmap of the rats for later use.
+X */
+X
+XinitRats(bits, width, height)
+Xshort *bits;
+X{
+X#ifdef	USE_BITMAPS
+X	ratsBitmap = xCreateBitmapFromBitCell(dpy, mwWindow, (char *) bits, 
+X					width, height);
+X	if (ratsBitmap == 0)
+X#else
+X	ratsImage = XCreateImage(dpy, DefaultVisual(dpy, DefaultScreen(dpy)),
+X				1, XYBitmap, 0, (char *) bits,
+X				width, height, 8, width>>3);
+X	ratsImage->byte_order = MSBFirst;
+X	ratsImage->bitmap_bit_order = MSBFirst;
+X
+X	if (ratsImage == 0)
+X#endif	USE_BITMAPS
+X		MWError("Can't create rats");
+X}
+X
+X/*
+X * Repaint the window for exposure and resize events. All drawing is
+X * done here, even though there are times during the initialization
+X * code when it would seem obvious to put some of the display up; this
+X * way portions of the display aren't shown twice then.
+X */
+X
+Xstatic
+XrepaintWindow()
+X{
+X	drawMaze();
+X	ShowPosition(M.xloc, M.yloc, M.invincible, M.dir);
+X	ShowView(M.xloc, M.yloc, M.dir);
+X	ShowAllPositions();
+X
+X	NewScoreCard();
+X	XFlush(dpy);
+X}
+X
+X/* 
+X * Repaint the icon for exposure events, or while flashing to indicate
+X * that there's a new player. 
+X */
+X
+Xstatic
+XrepaintIcon()
+X{
+X	XWMHints wmhints;
+X
+X	if (!iconInverted)
+X		wmhints.icon_pixmap = icon_pixmap;
+X	else
+X		wmhints.icon_pixmap = icon_reverse_pixmap;
+X	wmhints.flags = IconPixmapHint | IconMaskHint;
+X	wmhints.icon_mask = iconmask_pixmap;
+X	XSetWMHints(dpy, mwWindow, &wmhints);
+X}
+X
+X/* 
+X * Invert the whole display. Used to let the user know the mouse has
+X * strayed outside the window. We don't do this for X11.
+X */
+X
+Xstatic
+XinvertDisplay()
+X{
+X
+X}
+X
+X/*
+X * A hack of XCreateBitmapFromData that assumes MSBFirst BitCells insterad of
+X * LSBFirst bytes.
+X */
+X
+XPixmap
+XxCreateBitmapFromBitCell(display, d, data, width, height)
+XDisplay *display;
+XDrawable d;
+Xchar *data;
+Xunsigned int width, height;
+X{
+X	XImage ximage;
+X	GC gc;
+X	Pixmap pix;
+X
+X	pix = XCreatePixmap(display, d, width, height, 1);
+X	if (!pix)
+X	  return(0);
+X	gc = XCreateGC(display, pix, (unsigned long)0, (XGCValues *)0);
+X	ximage.height = height;
+X	ximage.width = width;
+X	ximage.depth = 1;
+X	ximage.xoffset = 0;
+X	ximage.format = ZPixmap;
+X	ximage.data = data;
+X	ximage.byte_order = MSBFirst;
+X	ximage.bitmap_unit = 8;
+X	ximage.bitmap_bit_order = MSBFirst;
+X	ximage.bitmap_pad = 8;
+X	ximage.bytes_per_line = (width+7)/8;
+X
+X	XPutImage(display, pix, gc, &ximage, 0, 0, 0, 0, width, height);
+X	XFreeGC(display, gc);
+X	return(pix);
+X}
+xxFUNNYxx

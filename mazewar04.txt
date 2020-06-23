@@ -1,0 +1,1396 @@
+Path: utzoo!utgpu!jarvis.csri.toronto.edu!mailrus!iuvax!rutgers!aramis.rutgers.edu!mcgrew
+From: mcg...@aramis.rutgers.edu (Charles Mcgrew)
+Newsgroups: comp.sources.sun
+Subject: v01i002:  Sunview/X Mazewar, Part04/06
+Message-ID: <May.5.13.34.10.1989.12503@aramis.rutgers.edu>
+Date: 5 May 89 17:34:11 GMT
+Organization: Rutgers Univ., New Brunswick, N.J.
+Lines: 1386
+Approved: mcg...@aramis.rutgers.edu
+
+Submitted-by: ke...@wsl.dec.com
+Posting-number: Volume 1, Issue 2
+Archive-name: mazewar/part04
+
+#!/bin/sh
+sed 's/^X//' >./mazewar.c << 'xxFUNNYxx'
+X/* $Header: mazewar.c,v 1.13 88/08/25 09:57:53 kent Exp $ */
+X
+X/* 
+X * mazewar.c - Rats in a maze
+X * 
+X * Author:	Christopher A. Kent
+X * 		Western Research Laboratory
+X * 		Digital Equipment Corporation
+X * Date:	Wed Sep 24 1986
+X */
+X
+X/***********************************************************
+XCopyright 1986 by Digital Equipment Corporation, Maynard, Massachusetts,
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital not be
+Xused in advertising or publicity pertaining to disstribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X/* 
+X * This is an adaptation of the Mazewar program built at Xerox PARC in
+X * Mesa for Altos by Jim Guyton and others in the late 1970s and beyond.
+X * Unlike other programs that have appeared from time to time, this
+X * one attempts to remain faithful to the original spirit of the game,
+X * with no fancy additions (like seeing your opponents or teleport
+X * traps). I hope you enjoy it.
+X */
+X
+X/*
+X * $Log:	mazewar.c,v $
+X * Revision 1.13  88/08/25  09:57:53  kent
+X * Copyright.
+X * 
+X * Revision 1.12  88/02/11  18:00:39  kent
+X * Changes so the value of M.theSocket doesn't change (this makes the
+X * window system code simpler).
+X * 
+X * Revision 1.11  88/02/11  17:52:41  kent
+X * Move some code out of the play loop so it can be called by an "external" 
+X * play loop (such as is needed for the X11 toolkit).
+X * 
+X * Revision 1.10  87/03/31  15:47:34  kent
+X * Handle duplicated RAT_NEW packets while joining the game. If the 
+X * guy is already in the game, just send him a status packet; previously,
+X * he'd get added to the game again!
+X * 
+X * Revision 1.9  87/03/31  14:37:37  kent
+X * Portability considerations, especially byteswapping to/from the net.
+X * 
+X * Revision 1.8  86/12/04  17:44:53  kent
+X * Notify user also if shot; make sure non-dukes get notified on game joins.
+X * 
+X * Revision 1.7  86/12/03  18:13:10  kent
+X * Cleaned up the shot handling code a bit. Was waiting two seconds
+X * instead of one, and would only handle one shot off the queue
+X * every time around the loop, instead of all applicable.
+X * 
+X * Also cleaned up a race in the port moving code for when the mover and
+X * the quitter were on the same machine.
+X * 
+X * Revision 1.6  86/12/03  13:31:10  kent
+X * 
+X * 
+X * Revision 1.5  86/12/03  10:15:03  kent
+X * Only send location when moving, not every time screen needs updating.
+X * 
+X * Revision 1.4  86/12/03  10:00:19  kent
+X * Changes to allow multiple players per machine.
+X * 
+X * Revision 1.3  86/12/01  23:44:42  kent
+X * Housecleaning and documentation pass.
+X * 
+X * Revision 1.2  86/12/01  14:47:04  kent
+X * Changes for a realistic implementation of shooting.
+X * 
+X * Revision 1.1  86/11/26  16:57:53  kent
+X * Initial revision
+X * 
+X */
+X
+X#ifndef	lint
+Xstatic char rcs_ident[] = "$Header: mazewar.c,v 1.13 88/08/25 09:57:53 kent Exp $";
+X#endif
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X
+X#include <netinet/in.h>
+X
+X#include <signal.h>
+X#include <stdio.h>
+X#include <strings.h>
+X
+X#include "mazewar.h"
+X
+Xstatic int		i1 = 0;		/* random number hackery */
+Xstatic int		i2 = 24;
+X
+Xstatic Boolean		updateView;	/* true if update needed */
+Xstatic Boolean		sendLocation;	/* true if must send out location */
+X
+Xstatic MazeTypePtr	mp = M.maze;	/* easy access to Maze */
+X
+Xstatic RatHealth	ratHealth;	/* keep track of other players */
+X
+Xmain(argc, argv)
+Xchar **argv;
+X{
+X	int	quit();
+X
+X	signal(SIGHUP, quit);
+X	signal(SIGINT, quit);
+X	signal(SIGTERM, quit);
+X	MazeInit(argc, argv);
+X	play();
+X}
+X
+Xplay()
+X{
+X	MWEvent		event;
+X	RatPacket	incoming;
+X	Boolean		KBEventPending();
+X
+X	event.eventDetail = &incoming;
+X
+X	while (1) {
+X		NextEvent(&event);
+X		if (!M.peeking)
+X			switch(event.eventType) {
+X			case EVENT_A:
+X				aboutFace();
+X				break;
+X
+X			case EVENT_S:
+X				leftTurn();
+X				break;
+X
+X			case EVENT_D:
+X				forward();
+X				break;
+X
+X			case EVENT_F:
+X				rightTurn();
+X				break;
+X
+X			case EVENT_BAR:
+X				backward();
+X				break;
+X
+X			case EVENT_I:
+X				makeInvincible(TRUE);
+X				break;
+X
+X			case EVENT_K:
+X				makeInvincible(FALSE);
+X				break;
+X
+X			case EVENT_O:
+X				makeOmniscient(TRUE);
+X				break;
+X
+X			case EVENT_L:
+X				makeOmniscient(FALSE);
+X				break;
+X
+X			case EVENT_LEFT_D:
+X				peekLeft();
+X				break;
+X
+X			case EVENT_MIDDLE_D:
+X				shoot();
+X				break;
+X
+X			case EVENT_RIGHT_D:
+X				peekRight();
+X				break;
+X
+X			case EVENT_NETWORK:
+X				readRats(&event);
+X				break;
+X
+X			case EVENT_INT:
+X				quit();
+X				break;
+X
+X			}
+X		else
+X			switch (event.eventType) {
+X			case EVENT_RIGHT_U:
+X			case EVENT_LEFT_U:
+X				peekStop();
+X				break;
+X
+X			case EVENT_NETWORK:
+X				readRats(&event);
+X				break;
+X			}
+X			
+X		ratDoctor();		/* clean house */
+X
+X		DoRatKillQ();
+X		
+X		DoViewUpdate();
+X		
+X		SendLocation();
+X	}
+X}
+X
+Xstatic	Direction	_aboutFace[NDIRECTION] ={SOUTH, NORTH, WEST, EAST};
+Xstatic	Direction	_leftTurn[NDIRECTION] =	{WEST, EAST, NORTH, SOUTH};
+Xstatic	Direction	_rightTurn[NDIRECTION] ={EAST, WEST, SOUTH, NORTH};
+X
+XaboutFace()
+X{
+X	M.dir = _aboutFace[M.dir];
+X	updateView = TRUE;
+X	sendLocation = TRUE;
+X}
+X
+XleftTurn()
+X{
+X	M.dir = _leftTurn[M.dir];
+X	updateView = TRUE;
+X	sendLocation = TRUE;
+X}
+X
+XrightTurn()
+X{
+X	M.dir = _rightTurn[M.dir];
+X	updateView = TRUE;
+X	sendLocation = TRUE;
+X}
+X
+X/* remember ... "North" is to the right ... positive X motion */
+X
+Xforward()
+X{
+X	register int	tx = M.xloc;
+X	register int	ty = M.yloc;
+X
+X	switch(M.dir) {
+X	case NORTH:	if (!mp[tx+1].y[ty])	tx++; break;
+X	case SOUTH:	if (!mp[tx-1].y[ty])	tx--; break;
+X	case EAST:	if (!mp[tx].y[ty+1])	ty++; break;
+X	case WEST:	if (!mp[tx].y[ty-1])	ty--; break;
+X	default:
+X		MWError("bad direction in Forward");
+X	}
+X	if ((M.xloc != tx) || (M.yloc != ty)) {
+X		M.xloc = tx; M.yloc = ty;
+X		updateView = TRUE;
+X		sendLocation = TRUE;
+X	}
+X}
+X
+Xbackward()
+X{
+X	register int	tx = M.xloc;
+X	register int	ty = M.yloc;
+X
+X	switch(M.dir) {
+X	case NORTH:	if (!mp[tx-1].y[ty])	tx--; break;
+X	case SOUTH:	if (!mp[tx+1].y[ty])	tx++; break;
+X	case EAST:	if (!mp[tx].y[ty-1])	ty--; break;
+X	case WEST:	if (!mp[tx].y[ty+1])	ty++; break;
+X	default:
+X		MWError("bad direction in Backward");
+X	}
+X	if ((M.xloc != tx) || (M.yloc != ty)) {
+X		M.xloc = tx; M.yloc = ty;
+X		updateView = TRUE;
+X		sendLocation = TRUE;
+X	}
+X}
+X
+XmakeInvincible(neverDie)
+XBoolean neverDie;
+X{
+X	M.invincible = neverDie;
+X	ShowPosition(M.xloc, M.yloc, M.invincible, M.dir);
+X}
+X
+XmakeOmniscient(allSeeing)
+XBoolean allSeeing;
+X{
+X	M.omniscient = allSeeing;
+X	ShowAllPositions();
+X}
+X
+XpeekLeft()
+X{
+X	M.xPeek = M.xloc;
+X	M.yPeek = M.yloc;
+X	M.dirPeek = M.dir;
+X
+X	switch(M.dir) {
+X	case NORTH:	if (!mp[M.xloc+1].y[M.yloc]) {
+X				M.xPeek = M.xloc + 1;
+X				M.dirPeek = WEST;
+X			}
+X			break;
+X
+X	case SOUTH:	if (!mp[M.xloc-1].y[M.yloc]) {
+X				M.xPeek = M.xloc - 1;
+X				M.dirPeek = EAST;
+X			}
+X			break;
+X
+X	case EAST:	if (!mp[M.xloc].y[M.yloc+1]) {
+X				M.yPeek = M.yloc + 1;
+X				M.dirPeek = NORTH;
+X			}
+X			break;
+X
+X	case WEST:	if (!mp[M.xloc].y[M.yloc-1]) {
+X				M.yPeek = M.yloc - 1;
+X				M.dirPeek = SOUTH;
+X			}
+X			break;
+X
+X	default:
+X			MWError("bad direction in PeekLeft");
+X	}
+X
+X	/* if any change, display the new view without moving! */
+X
+X	if ((M.xPeek != M.xloc) || (M.yPeek != M.yloc)) {
+X		M.peeking = TRUE;
+X		updateView = TRUE;
+X	}
+X}
+X
+XpeekRight()
+X{
+X	M.xPeek = M.xloc;
+X	M.yPeek = M.yloc;
+X	M.dirPeek = M.dir;
+X
+X	switch(M.dir) {
+X	case NORTH:	if (!mp[M.xloc+1].y[M.yloc]) {
+X				M.xPeek = M.xloc + 1;
+X				M.dirPeek = EAST;
+X			}
+X			break;
+X
+X	case SOUTH:	if (!mp[M.xloc-1].y[M.yloc]) {
+X				M.xPeek = M.xloc - 1;
+X				M.dirPeek = WEST;
+X			}
+X			break;
+X
+X	case EAST:	if (!mp[M.xloc].y[M.yloc+1]) {
+X				M.yPeek = M.yloc + 1;
+X				M.dirPeek = SOUTH;
+X			}
+X			break;
+X
+X	case WEST:	if (!mp[M.xloc].y[M.yloc-1]) {
+X				M.yPeek = M.yloc - 1;
+X				M.dirPeek = NORTH;
+X			}
+X			break;
+X
+X	default:
+X			MWError("bad direction in PeekRight");
+X	}
+X
+X	/* if any change, display the new view without moving! */
+X
+X	if ((M.xPeek != M.xloc) || (M.yPeek != M.yloc)) {
+X		M.peeking = TRUE;
+X		updateView = TRUE;
+X	}
+X}
+X
+XpeekStop()
+X{
+X	M.peeking = FALSE;
+X	updateView = TRUE;
+X}
+X
+XDoViewUpdate()
+X{
+X	if (updateView) {	/* paint the screen */
+X		ShowPosition(M.xloc, M.yloc, M.invincible, M.dir);
+X		if (M.peeking)
+X			ShowView(M.xPeek, M.yPeek, M.dirPeek);
+X		else
+X			ShowView(M.xloc, M.yloc, M.dir);
+X		updateView = FALSE;
+X	}
+X}
+X
+Xshoot()
+X{
+X	M.score--;
+X	M.ratcb.rats[M.myRatId].score--;
+X	UpdateScoreCard(M.myRatId);
+X	sendKill();
+X}
+X
+X/* 
+X * add the shot to the shot queue. It'll be processed later.
+X */
+X
+XholdBreath(ratKill)
+XRatKill	ratKill;
+X{
+X	RatKillQ_t	rkp;
+X	struct timeval	now;
+X	
+X	DeadRatCursor();
+X	gettimeofday(&now, NULL);
+X
+X	if (RatKillQ == NULL) {
+X		RatKillQ = (RatKillQ_t) malloc(sizeof(AqRatKillQ));
+X		rkp = RatKillQ;
+X	} else {
+X		for (rkp = RatKillQ; rkp->nextOne != NULL; rkp = rkp->nextOne)
+X			;
+X		rkp->nextOne = (RatKillQ_t) malloc(sizeof(AqRatKillQ));
+X		rkp = rkp->nextOne;
+X	}
+X
+X	bcopy((char *)ratKill, (char *)&rkp->thisOne, sizeof(AqRatKill));
+X	rkp->nextOne = NULL;
+X	rkp->shotHits = now;
+X	rkp->shotHits.tv_sec++;
+X}
+X
+X/* 
+X * finally see if the shot hit home.
+X */
+X
+XhandleKill(tx, ty, td, ratId)
+XLoc	tx, ty;
+XDirection td;
+XRatId	ratId;
+X{
+X	while (!M.maze[tx].y[ty]) {
+X		switch (td) {
+X		case NORTH:	tx++; break;
+X		case SOUTH:	tx--; break;
+X		case EAST:	ty++; break;
+X		case WEST:	ty--; break;
+X		}
+X		if ((M.xloc == tx) && (M.yloc == ty)) {	/* Oh oh... */
+X			sendDead(ratId);
+X			NewPosition();	/* avoid multiple hits */
+X			FlashScreen();
+X			M.score -= 5;	/* minus 5 points for getting killed */
+X			M.ratcb.rats[M.myRatId].score = M.score;
+X			UpdateScoreCard(M.myRatId);
+X			NotifyPlayer();
+X			updateView = TRUE;
+X			sendLocation = TRUE;
+X		}
+X	}
+X	RatCursor();
+X}
+X
+X/*
+X * Process the pending shots, if any.
+X */
+X
+XDoRatKillQ()
+X{
+X	struct timeval	now;
+X	RatKillQ_t	rkp = RatKillQ;
+X	RatKill		ratKill;
+X
+X	if (RatKillQ != NULL) {
+X		gettimeofday(&now, NULL);
+X		while (rkp != NULL) {
+X			if (now.tv_sec >= rkp->shotHits.tv_sec) {
+X				if (now.tv_usec >=
+X				    rkp->shotHits.tv_usec) {
+X					ratKill = &RatKillQ->thisOne;
+X					handleKill(ratKill->xLoc,
+X						   ratKill->yLoc,
+X						   ratKill->dir,
+X						   ratKill->ratId);
+X					RatKillQ = RatKillQ->nextOne;
+X					free((char *) rkp);
+X					rkp = RatKillQ;
+X				} else
+X					break;
+X			} else
+X				break;
+X		}
+X		if (RatKillQ == NULL)
+X			RatCursor();
+X	}
+X}
+X		
+X/* 
+X * Convert the contents of a packet to network order before sending.
+X */
+X
+XConvertOutgoing(p)
+XRatPacket *p;
+X{
+X	char		buf[64];
+X	RatId		ratId;
+X	RatLocation	ratLoc;
+X	RatKill		ratKill;
+X	RatDead		ratDead;
+X	RatStatus	ratStatus;
+X	RatNew		ratNew;
+X	RatGone		ratGone;
+X	RatQuery	ratQuery;
+X	RatAlive	ratAlive;
+X	RatMove		ratMove;
+X
+X	switch(p->type) {
+X	case RAT_LOCATION:
+X		ratLoc = (RatLocation) &p->body;
+X		ratLoc->ratId = htonl(ratLoc->ratId);
+X		ratLoc->xLoc =  htons(ratLoc->xLoc);
+X		ratLoc->yLoc =  htons(ratLoc->yLoc);
+X		ratLoc->dir =   htons(ratLoc->dir);
+X		ratLoc->score = htonl(ratLoc->score);
+X		break;
+X
+X	case RAT_KILL:
+X		ratKill = (RatKill) &p->body;
+X		ratKill->ratId = htonl(ratKill->ratId);
+X		ratKill->xLoc  = htons(ratKill->xLoc);
+X		ratKill->yLoc  = htons(ratKill->yLoc);
+X		ratKill->dir   = htons(ratKill->dir);
+X		break;
+X
+X	case RAT_DEAD:
+X		ratDead = (RatDead) &p->body;
+X		ratDead->ratId = htonl(ratDead->ratId);
+X		ratDead->killedBy = htonl(ratDead->killedBy);
+X		break;
+X
+X	case RAT_STATUS:
+X		ratStatus = (RatStatus) &p->body;
+X		ratStatus->dukeRat = htonl(ratStatus->dukeRat);
+X		for (ratId = 0; ratId < MAXRATS; ratId++) {
+X			RatInfo	ratInfo;
+X
+X			ratInfo = &ratStatus->rats[ratId];
+X			ratInfo->playing = htons(ratInfo->playing);
+X			ratInfo->xLoc = htons(ratInfo->xLoc);
+X			ratInfo->yLoc = htons(ratInfo->yLoc);
+X			ratInfo->dir = htons(ratInfo->dir);
+X			ratInfo->score = htonl(ratInfo->score);
+X			ratInfo->addr.sin_family =
+X				ntohs(ratInfo->addr.sin_family);
+X			/* don't touch address or name */
+X		}
+X		break;
+X
+X	case RAT_NEW:
+X		ratNew = (RatNew) &p->body;
+X		ratNew->pass = htons(ratNew->pass);
+X		ratNew->xLoc = htons(ratNew->xLoc);
+X		ratNew->yLoc = htons(ratNew->yLoc);
+X		ratNew->dir  = htons(ratNew->dir);
+X		ratNew->addr.sin_family =
+X			htons(ratNew->addr.sin_family);
+X		/* don't touch address or name */
+X		break;
+X
+X	case RAT_GOING:
+X		ratGone = (RatGone) &p->body;
+X		ratGone->ratId = htonl(ratGone->ratId);
+X		break;
+X
+X	case RAT_QUERY:
+X		ratQuery = (RatQuery) &p->body;
+X		ratQuery->ratId = htonl(ratQuery->ratId);
+X		break;
+X
+X	case RAT_ALIVE:
+X		ratAlive = (RatAlive) &p->body;
+X		ratAlive->ratId = htonl(ratAlive->ratId);
+X		break;
+X
+X	case RAT_SURVEY:
+X		ratNew = (RatNew) &p->body;
+X		ratNew->pass = htons(ratNew->pass);
+X		ratNew->xLoc = htons(ratNew->xLoc);
+X		ratNew->yLoc = htons(ratNew->yLoc);
+X		ratNew->dir  = htons(ratNew->dir);
+X		/* don't touch address or name */
+X		break;
+X
+X	case RAT_MOVE:
+X		ratMove = (RatMove) &p->body;
+X		ratMove->ratId = htonl(ratMove->ratId);
+X		break;
+X
+X	default:
+X		sprintf(buf, "ConvertOutgoing bad type %d (%d)",
+X			p->type, htons(p->type));
+X		MWError(buf);
+X	}
+X	p->type = htonl(p->type);
+X}
+X
+X/* 
+X * Convert the contents of a packet to host order after ConvertIncoming.
+X */
+X
+XConvertIncoming(p)
+XRatPacket *p;
+X{
+X	char		buf[64];
+X	RatId		ratId;
+X	RatLocation	ratLoc;
+X	RatKill		ratKill;
+X	RatDead		ratDead;
+X	RatStatus	ratStatus;
+X	RatNew		ratNew;
+X	RatGone		ratGone;
+X	RatQuery	ratQuery;
+X	RatAlive	ratAlive;
+X	RatMove		ratMove;
+X
+X	p->type = ntohl(p->type);
+X	switch(p->type) {
+X	case RAT_LOCATION:
+X		ratLoc = (RatLocation) &p->body;
+X		ratLoc->ratId = ntohl(ratLoc->ratId);
+X		ratLoc->xLoc =  ntohs(ratLoc->xLoc);
+X		ratLoc->yLoc =  ntohs(ratLoc->yLoc);
+X		ratLoc->dir =   ntohs(ratLoc->dir);
+X		ratLoc->score = ntohl(ratLoc->score);
+X		break;
+X
+X	case RAT_KILL:
+X		ratKill = (RatKill) &p->body;
+X		ratKill->ratId = ntohl(ratKill->ratId);
+X		ratKill->xLoc  = ntohs(ratKill->xLoc);
+X		ratKill->yLoc  = ntohs(ratKill->yLoc);
+X		ratKill->dir   = ntohs(ratKill->dir);
+X		break;
+X
+X	case RAT_DEAD:
+X		ratDead = (RatDead) &p->body;
+X		ratDead->ratId = ntohl(ratDead->ratId);
+X		ratDead->killedBy = ntohl(ratDead->killedBy);
+X		break;
+X
+X	case RAT_STATUS:
+X		ratStatus = (RatStatus) &p->body;
+X		ratStatus->dukeRat = ntohl(ratStatus->dukeRat);
+X		for (ratId = 0; ratId < MAXRATS; ratId++) {
+X			RatInfo	ratInfo;
+X
+X			ratInfo = &ratStatus->rats[ratId];
+X			ratInfo->playing = ntohs(ratInfo->playing);
+X			ratInfo->xLoc = ntohs(ratInfo->xLoc);
+X			ratInfo->yLoc = ntohs(ratInfo->yLoc);
+X			ratInfo->dir = ntohs(ratInfo->dir);
+X			ratInfo->score = ntohl(ratInfo->score);
+X			ratInfo->addr.sin_family =
+X				ntohs(ratInfo->addr.sin_family);
+X			/* don't touch address or name */
+X		}
+X		break;
+X
+X	case RAT_NEW:
+X		ratNew = (RatNew) &p->body;
+X		ratNew->pass = ntohs(ratNew->pass);
+X		ratNew->xLoc = ntohs(ratNew->xLoc);
+X		ratNew->yLoc = ntohs(ratNew->yLoc);
+X		ratNew->dir  = ntohs(ratNew->dir);
+X		ratNew->addr.sin_family =
+X			ntohs(ratNew->addr.sin_family);
+X		/* don't touch address or name */
+X		break;
+X
+X	case RAT_GOING:
+X		ratGone = (RatGone) &p->body;
+X		ratGone->ratId = ntohl(ratGone->ratId);
+X		break;
+X
+X	case RAT_QUERY:
+X		ratQuery = (RatQuery) &p->body;
+X		ratQuery->ratId = ntohl(ratQuery->ratId);
+X		break;
+X
+X	case RAT_ALIVE:
+X		ratAlive = (RatAlive) &p->body;
+X		ratAlive->ratId = ntohl(ratAlive->ratId);
+X		break;
+X
+X	case RAT_SURVEY:
+X		ratNew = (RatNew) &p->body;
+X		ratNew->pass = ntohs(ratNew->pass);
+X		ratNew->xLoc = ntohs(ratNew->xLoc);
+X		ratNew->yLoc = ntohs(ratNew->yLoc);
+X		ratNew->dir  = ntohs(ratNew->dir);
+X		/* don't touch address or name */
+X		break;
+X
+X	case RAT_MOVE:
+X		ratMove = (RatMove) &p->body;
+X		ratMove->ratId = ntohl(ratMove->ratId);
+X		break;
+X
+X	default:
+X		sprintf(buf, "ConvertIncoming bad type %d (%d)",
+X			p->type, ntohs(p->type));
+X		MWError(buf);
+X	}
+X}
+X
+X#ifdef	PACKET_TRACE
+Xstatic char	*packTypes[] = {
+X	"RAT_LOCATION",
+X	"RAT_KILL",
+X	"RAT_DEAD",
+X	"RAT_STATUS",
+X	"RAT_NEW",
+X	"RAT_GOING",
+X	"RAT_QUERY",
+X	"RAT_ALIVE",
+X	"RAT_SURVEY",
+X	"RAT_MOVE",
+X	0
+X};
+X#endif	PACKET_TRACE
+X
+XreadRats(evp)
+XMWEvent *evp;
+X{
+X	register RatLocation	ratLoc;
+X	register RatLook	ratLook;
+X	register RatAlive	ratAlive;
+X	RatPacket	*pack = evp->eventDetail;
+X	RatInfo		ratInfo;
+X	Boolean		oldVisible;
+X	RatId		ratId;
+X	RatStatus	status;
+X	RatNew		ratNew;
+X	RatGone		ratGone;
+X	RatKill		ratKill;
+X	RatDead		ratDead;
+X	RatQuery	ratQuery;
+X	RatMove		ratMove;
+X	Sockaddr	nullAddr;
+X	char		buf[32];
+X	int		newSocket;
+X
+X#ifdef	PACKET_TRACE
+X	printf("received %s (%d)\n",
+X		packTypes[pack->type - 1], pack->type);
+X#endif	PACKET_TRACE
+X
+X	switch(pack->type) {
+X	case RAT_LOCATION:		/* someone moved */
+X		ratLoc = (RatLocation) &pack->body;
+X		ratLook = &R2d2[ratLoc->ratId];
+X		if ((oldVisible = ratLook->visible) == TRUE)
+X			XORToken(ratLoc->ratId);
+X		ratInfo = &M.ratcb.rats[ratLoc->ratId];
+X		ratInfo->xLoc = ratLoc->xLoc;
+X		ratInfo->yLoc = ratLoc->yLoc;
+X		ratInfo->dir  = ratLoc->dir;
+X		DisplayOthersPosition(ratLoc->ratId, ratLoc->xLoc,
+X				      ratLoc->yLoc, ratLoc->dir);
+X		TokenVisible(ratLoc->ratId);
+X		if (ratLook->visible == TRUE)
+X			XORToken(ratLoc->ratId);
+X		if ((oldVisible != ratLook->visible) ||
+X		    (ratInfo->score != ratLoc->score)) {
+X			ratInfo->score = ratLoc->score;
+X			UpdateScoreCard(ratLoc->ratId);
+X		}
+X		ratHealth[ratLoc->ratId].rcvd = TRUE;
+X		break;
+X
+X	case RAT_KILL:			/* someone shot at me */
+X		if (!M.invincible) {
+X			ratKill = (RatKill) &pack->body;
+X			holdBreath(ratKill);
+X		}
+X		break;
+X
+X	case RAT_DEAD:			/* I hit someone */
+X		ratDead = (RatDead) &pack->body;
+X		if (ratDead->killedBy == M.myRatId) {
+X			FlashTop();	/* got him! */
+X			M.score += 10;	/* 10 points for a kill */
+X			M.score += 1;	/* make up for shot cost */
+X			M.ratcb.rats[M.myRatId].score = M.score;
+X			UpdateScoreCard(M.myRatId);
+X			sendLocToAll();
+X		}
+X		break;
+X
+X	case RAT_STATUS:		/* new info about everyone */
+X		status = (RatStatus) &pack->body;
+X		if (bcmp(&status->rats[M.myRatId].addr, &M.myAddr,
+X			  sizeof(M.myAddr)) != 0)
+X			break;		/* not for me, from another game */
+X					/* perhaps left over from findDuke() */
+X
+X		/* Have a new table, turn off any visible opponents */
+X
+X		for (ratId = 0; ratId < MAXRATS; ratId++)
+X			if (R2d2[ratId].visible == TRUE)
+X				XORToken(ratId);
+X		bcopy((char *)status, (char *)&M.ratcb, sizeof(RatCb));
+X		if (M.ratcb.dukeRat == M.myRatId)
+X			M.duke = TRUE;
+X		for (ratId = 0; ratId < MAXRATS; ratId++) {
+X			TokenVisible(ratId);
+X			if (R2d2[ratId].visible == TRUE)
+X				XORToken(ratId);
+X		}
+X		NewScoreCard();
+X		ratInfo = &M.ratcb.rats[M.myRatId];
+X		if ((ratInfo->xLoc != M.xloc) ||
+X		    (ratInfo->yLoc != M.yloc) ||
+X		    (ratInfo->dir  != M.dir))
+X			sendLocToAll();
+X		
+X		break;
+X
+X	case RAT_NEW:			/* new player */
+X		ratNew = (RatNew) &pack->body;
+X		if (ratNew->pass == RAT_PASSWORD) {
+X			if (M.duke) {
+X				/* 
+X				 * need to check for duplicates here;
+X				 * a previous reply might have been
+X				 * lost. Can't let the same guy in the
+X				 * game twice.
+X				 */
+X
+X				register RatId	id;
+X
+X				for (id = 0; id < MAXRATS; id++)
+X					if (M.ratcb.rats[id].playing &&
+X					    !bcmp(&M.ratcb.rats[id].addr,
+X						  &evp->eventSource,
+X						  sizeof (Sockaddr))) {
+X
+X						/* already there */
+X						sendStatus(evp->eventSource);
+X						break;
+X					}
+X				if (id >= MAXRATS) {	/* fell through */
+X					allocateNewRat(ratNew);
+X					sendAllStatus();
+X				}
+X			} else
+X				sendStatus(evp->eventSource);
+X		}
+X		break;
+X
+X	case RAT_GOING:		       /* player leaving, only rcvd if duke */
+X		ratGone = (RatGone) &pack->body;
+X		ratLeft(ratGone->ratId);
+X		break;
+X
+X	case RAT_QUERY:			/* are you alive? */
+X		/*
+X		 * register their net address, in case they got a
+X		 * RAT_MOVE, moved, and the change got lost somewhere.
+X		 */
+X		ratQuery = (RatQuery) &pack->body;
+X		M.ratcb.rats[ratQuery->ratId].addr = evp->eventSource;
+X
+X		sendAlive();
+X		break;
+X
+X	case RAT_ALIVE:			/* I am alive */
+X		ratAlive = (RatAlive) &pack->body;
+X		ratHealth[ratAlive->ratId].rcvd = TRUE;
+X		break;
+X
+X	case RAT_SURVEY:		/* who's out there? */
+X		ratNew = (RatNew) &pack->body;
+X		if (ratNew->pass == RAT_PASSWORD)
+X			sendStatus(evp->eventSource);
+X		break;
+X
+X	case RAT_MOVE:			/* move to M.mazePort */
+X		ratMove = (RatMove) &pack->body;
+X		if (ratMove->ratId != M.ratcb.dukeRat)
+X			MWError("bogus RAT_MOVE");
+X		close(M.theSocket);
+X
+X		/* 
+X		 * If the socket being closed is on this machine,
+X		 * leave some time for the socket to close down before
+X		 * I try to grab it.
+X		 */
+X
+X		if (bcmp((char *) &evp->eventSource.sin_addr,
+X			  (char *) &M.myAddr.sin_addr,
+X			  sizeof(M.myAddr.sin_addr)) == 0)
+X			sleep(1);
+X
+X		/* grab the socket */
+X
+X		newSocket = socket(AF_INET, SOCK_DGRAM, 0);
+X		if (newSocket < 0)
+X			MWError("RAT_MOVE lost socket");
+X		if (dup2(newSocket, M.theSocket) < 0)
+X			MWError("RAT_MOVE dup2 failed");
+X		if (setsockopt(M.theSocket, SOL_SOCKET, SO_REUSEADDR,
+X			       NULL, 0) < 0)
+X			MWError("RAT_MOVE can't reuse addresses");
+X		M.myAddr.sin_port = M.mazePort;
+X		nullAddr = M.myAddr;	/* see netInit() */
+X		bzero((char *) &nullAddr.sin_addr, sizeof(nullAddr.sin_addr));
+X		if (bind(M.theSocket, &nullAddr, sizeof(nullAddr)) < 0)
+X			MWError("RAT_MOVE can't bind");
+X		M.ratcb.rats[M.myRatId].addr = M.myAddr;
+X		sendAllStatus();
+X		break;
+X
+X	default:
+X		sprintf(buf, "readRats bad packet type 0x%x", pack->type);
+X		MWError(buf);
+X	}
+X}
+X
+X/* 
+X * In order to reduce the network traffic, only send out the location change if
+X * there's no keyboard input pending.
+X */
+X
+XSendLocation()
+X{
+X	if (!KBEventPending())
+X		if (sendLocation) {
+X			sendLocToAll();
+X			sendLocation = FALSE;
+X		}
+X}
+X
+X/* 
+X * Let everyone know I've moved.
+X */
+X
+XsendLocToAll()
+X{
+X	RatPacket	pack;
+X	RatLocation	ratloc;
+X	RatId		i;
+X	RatInfo		ratInfo = &M.ratcb.rats[M.myRatId];
+X
+X	ratInfo->xLoc = M.xloc;		/* update my table, too */
+X	ratInfo->yLoc = M.yloc;
+X	ratInfo->dir  = M.dir;
+X	ratInfo->score = M.score;
+X
+X	pack.type = RAT_LOCATION;
+X	ratloc = (RatLocation) &pack.body;
+X	ratloc->ratId = M.myRatId;
+X	ratloc->xLoc = ratInfo->xLoc;
+X	ratloc->yLoc = ratInfo->yLoc;
+X	ratloc->dir = ratInfo->dir;
+X	ratloc->score = ratInfo->score;
+X	ConvertOutgoing(&pack);
+X	
+X	/* 
+X	 * Would really like this to be asynchronous, so play could
+X	 * continue while the packets are being sent. Of course, then,
+X	 * the data might change in the midst of all this...
+X	 */
+X
+X	for (i = 0; i < MAXRATS; i++)
+X		if ((i != M.myRatId) && (M.ratcb.rats[i].playing))
+X			if (sendto(M.theSocket, &pack, sizeof(pack), 0,
+X				  &M.ratcb.rats[i].addr, sizeof(Sockaddr)) < 0)
+X				MWError("sendLocToAll");
+X}
+X
+XsendAllStatus()
+X{
+X	RatId	i;
+X
+X	for (i = 0; i < MAXRATS; i++)
+X		if ((i != M.myRatId) && (M.ratcb.rats[i].playing))
+X			sendStatus(M.ratcb.rats[i].addr);
+X}
+X
+X/* 
+X * Send the entire status data to a rat.
+X */
+X
+XsendStatus(to)
+XSockaddr to;
+X{
+X	RatPacket	pack;
+X
+X	pack.type = RAT_STATUS;
+X	pack.body = M.ratcb;
+X	ConvertOutgoing(&pack);
+X	if (sendto(M.theSocket, &pack, sizeof(pack), 0, &to, sizeof(to)) < 0)
+X		MWError("sendStatus");
+X}
+X
+X/* 
+X * Tell a player he's being shot at.
+X */
+X
+XsendKill()
+X{
+X	RatPacket	pack;
+X	RatKill		ratKill;
+X	RatId		ixRatId;
+X
+X	for (ixRatId = 0; ixRatId < MAXRATS; ixRatId++) {
+X		if (ixRatId == M.myRatId)
+X			continue;
+X		if (R2d2[ixRatId].visible) {
+X			pack.type = RAT_KILL;
+X			ratKill = (RatKill) &pack.body;
+X			ratKill->ratId = M.myRatId;
+X			ratKill->xLoc = M.xloc;
+X			ratKill->yLoc = M.yloc;
+X			ratKill->dir  = M.dir;
+X			ConvertOutgoing(&pack);
+X			if (sendto(M.theSocket, &pack, sizeof(pack), 0,
+X				   &M.ratcb.rats[ixRatId].addr,
+X				   sizeof(M.ratcb.rats[ixRatId].addr)) < 0)
+X				MWError("sendKill");
+X		}
+X	}
+X}
+X
+X/* 
+X * Tell a shooter he hit me.
+X */
+X
+XsendDead(killerRatId)
+XRatId	killerRatId;
+X{
+X	RatPacket	pack;
+X	RatDead		ratDead;
+X
+X	pack.type = RAT_DEAD;
+X	ratDead = (RatDead) &pack.body;
+X	ratDead->ratId = M.myRatId;
+X	ratDead->killedBy = killerRatId;
+X	ConvertOutgoing(&pack);
+X	if (sendto(M.theSocket, &pack, sizeof(pack), 0,
+X		  &M.ratcb.rats[killerRatId].addr, sizeof(Sockaddr)) < 0)
+X		MWError("sendDead");
+X}
+X
+X/* 
+X * Tell the duke I'm leaving.
+X */
+X
+XsendGoing()
+X{
+X	RatPacket	pack;
+X	RatGone		ratGone;
+X
+X	pack.type = RAT_GOING;
+X	ratGone = (RatGone) &pack.body;
+X	ratGone->ratId = M.myRatId;
+X	ConvertOutgoing(&pack);
+X	if (sendto(M.theSocket, &pack, sizeof(pack), 0,
+X		  &M.ratcb.rats[M.ratcb.dukeRat].addr, sizeof(Sockaddr)) < 0)
+X		MWError("sendGoing");
+X}
+X
+X/* 
+X * Ask the silent types if they're alive.
+X */
+X
+XsendQuery()
+X{
+X	RatPacket	pack;
+X	RatId		ratId;
+X	RatQuery	ratQuery;
+X
+X	for (ratId = 0; ratId < MAXRATS; ratId++)
+X		if (ratHealth[ratId].send) {
+X			pack.type = RAT_QUERY;
+X			ratQuery = (RatQuery) &pack.body;
+X			ratQuery->ratId = M.myRatId;
+X			ratHealth[ratId].send = FALSE;
+X			ConvertOutgoing(&pack);
+X			if (sendto(M.theSocket, &pack, sizeof(pack), 0,
+X				  &M.ratcb.rats[ratId].addr,
+X				  sizeof(Sockaddr)) < 0)
+X				MWError("sendQuery");
+X		}
+X}
+X
+X/* 
+X * Register someone as alive, and let them know we are, too. 
+X */
+X
+XsendAlive()
+X{
+X	RatPacket	pack;
+X	RatId		ratId;
+X	RatAlive	ratAlive;
+X
+X	for (ratId = 0; ratId < MAXRATS; ratId++) {
+X		if ((ratId == M.myRatId) ||
+X		    !M.ratcb.rats[ratId].playing)
+X			continue;
+X		pack.type = RAT_ALIVE;
+X		ratAlive = (RatAlive) &pack.body;
+X		ratAlive->ratId = M.myRatId;
+X		ConvertOutgoing(&pack);
+X		if (sendto(M.theSocket, &pack, sizeof(pack), 0,
+X		      &M.ratcb.rats[ratId].addr, sizeof(Sockaddr)) < 0)
+X			MWError("sendAlive");
+X	}
+X}
+X
+X/* 
+X * Let a new player in the game.
+X */
+X
+XallocateNewRat(ratNew)
+XRatNew	ratNew;
+X{
+X	RatId	ratId;
+X	RatInfo	ratInfo;
+X
+X	for (ratId = 0; ratId < MAXRATS; ratId++) {
+X		ratInfo = &M.ratcb.rats[ratId];
+X		if (!ratInfo->playing) {
+X			ratInfo->playing = TRUE;
+X			ratInfo->xLoc = ratNew->xLoc;
+X			ratInfo->yLoc = ratNew->yLoc;
+X			ratInfo->dir  = ratNew->dir;
+X			ratInfo->score = 0;
+X			ratInfo->addr = ratNew->addr;
+X			strncpy(ratInfo->name, ratNew->name, NAMESIZE);
+X			TokenVisible(ratId);
+X			UpdateScoreCard(ratId);
+X			if (R2d2[ratId].visible == TRUE)
+X				XORToken(ratId);
+X			AddNewPlayer(ratId, ratNew->xLoc, ratNew->yLoc,
+X					ratNew->dir);
+X			return;
+X		}
+X	}
+X}
+X
+X/* 
+X * I wanna go home!
+X */
+X
+Xquit()
+X{
+X	RatId	ratId;
+X
+X	if (!M.duke)
+X		sendGoing();
+X	else {				/* oh oh, I'm the duke rat */
+X		M.ratcb.rats[M.myRatId].playing = FALSE;
+X		for (ratId = 0; ratId < MAXRATS; ratId++)
+X			if (M.ratcb.rats[ratId].playing) {
+X				M.ratcb.dukeRat = ratId;
+X				sendAllStatus();
+X				break;
+X			}
+X		moveSomeone(M.myRatId);
+X	}
+X	StopWindow();
+X	exit(0);
+X}
+X
+X/* 
+X * Clean up after someone who has left. Let everyone else know, too.
+X */
+X
+XratLeft(ratId)
+XRatId	ratId;
+X{
+X	if (R2d2[ratId].visible == TRUE)
+X		XORToken(ratId);
+X	R2d2[ratId].visible = FALSE;
+X	M.ratcb.rats[ratId].playing = FALSE;
+X	ExitPlayer(ratId);
+X	UpdateScoreCard(ratId);
+X	sendAllStatus();
+X	moveSomeone(ratId);
+X}
+X
+X/* 
+X * See if the guy leaving has vacated the reserved port. If so, try to
+X * find someone else on that machine and tell him to move there.
+X */
+X
+XmoveSomeone(ratId)
+XRatId	ratId;
+X{
+X	Sockaddr	hisAddr;
+X	RatId		newRat;
+X	RatPacket	pack;
+X	RatMove		ratMove;
+X
+X	hisAddr = M.ratcb.rats[ratId].addr;
+X	if (hisAddr.sin_port != M.mazePort)
+X		return;
+X
+X	for (newRat = 0; newRat < MAXRATS; newRat++) {
+X		if (newRat == ratId)
+X			continue;
+X		if (M.ratcb.rats[newRat].playing == FALSE)
+X			continue;
+X		if (!bcmp(&M.ratcb.rats[newRat].addr.sin_addr,
+X			  &hisAddr.sin_addr, sizeof(hisAddr.sin_addr))) {
+X			pack.type = RAT_MOVE;
+X			ratMove = (RatMove) &pack.body;
+X			ratMove->ratId = M.ratcb.dukeRat;
+X			ConvertOutgoing(&pack);
+X			if (sendto(M.theSocket, &pack, sizeof(pack), 0,
+X				  &M.ratcb.rats[newRat].addr,
+X				  sizeof(Sockaddr)) < 0)
+X				MWError("moveSomeone");
+X
+X			/* 
+X			 * If I'm the one leaving, must free up my port.
+X			 */
+X
+X			if (ratId == M.myRatId)
+X				close(M.theSocket);
+X			break;
+X		}
+X	}
+X		
+X}
+X
+X/* 
+X * Make sure nobody has died unnoticed.
+X */
+X
+Xstatic Boolean		started = FALSE;
+Xstruct timeval	waitStart;
+Xstatic Boolean		runDoctor = TRUE;
+X
+Xstatic
+XratDoctor()
+X{
+X	RatId	ratId, nextRatId();
+X	struct timeval	now;
+X
+X	if (!runDoctor)
+X		return;
+X
+X	if (started == FALSE) {
+X		gettimeofday(&waitStart, NULL);
+X		for (ratId = 0; ratId < MAXRATS; ratId++) {
+X			ratHealth[ratId].count = 0;
+X			ratHealth[ratId].send = FALSE;
+X			ratHealth[ratId].rcvd = FALSE;
+X		}
+X		started = TRUE;
+X		return;
+X	} else {
+X		gettimeofday(&now, NULL);
+X		if ((now.tv_sec - waitStart.tv_sec) < 5)
+X			return;
+X		for (ratId = 0; ratId < MAXRATS; ratId++) {
+X			if ((!M.ratcb.rats[ratId].playing) ||
+X			    (ratId == M.myRatId))
+X				continue;
+X			if (ratHealth[ratId].rcvd) {
+X				ratHealth[ratId].count = 0;
+X				ratHealth[ratId].rcvd = FALSE;
+X				continue;
+X			}
+X			if (++ratHealth[ratId].count < 5) {
+X				ratHealth[ratId].send = TRUE;
+X				continue;
+X			}
+X			if (M.duke ||
+X			    ((M.ratcb.dukeRat == ratId) &&
+X			     (nextRatId(ratId) == M.myRatId))) {
+X				M.duke = TRUE;
+X				M.ratcb.dukeRat = M.myRatId;
+X				ratLeft(ratId);
+X			}
+X		}
+X		sendQuery();
+X		gettimeofday(&waitStart, NULL);
+X	}
+X	
+X}
+X
+XRatId
+XnextRatId(ratId)
+XRatId	ratId;
+X{
+X	RatId	ixRatId;
+X
+X	for (ixRatId = 0; ixRatId < MAXRATS; ixRatId++)
+X		if (M.ratcb.rats[ixRatId].playing &&
+X		    (ixRatId != ratId))
+X			return ixRatId;
+X	return ixRatId;
+X}
+X
+XNewPosition()
+X{
+X	register	rndCnt = 0;
+X
+X	M.xloc = M.yloc = 0;		/* start on occupied square */
+X	while (mp[M.xloc].y[M.yloc]) {
+X		M.xloc = random(MAZEXMAX);
+X		M.yloc = random(MAZEYMAX);
+X		if (++rndCnt == 100) {
+X			rndCnt = 0;
+X			InitRandom();
+X		}
+X	}
+X
+X	/* prevent a blank wall at first glimpse */
+X
+X	if (!M.maze[M.xloc+1].y[M.yloc]) M.dir = NORTH;
+X	if (!M.maze[M.xloc-1].y[M.yloc]) M.dir = SOUTH;
+X	if (!M.maze[M.xloc].y[M.yloc+1]) M.dir = EAST;
+X	if (!M.maze[M.xloc].y[M.yloc-1]) M.dir = WEST;
+X
+X	return;
+X}
+X
+X/* re-initialize the maze randomization vector */
+XInitRandom()
+X{
+X	struct timeval	t;
+X	struct timezone	tz;
+X	register int	i;
+X
+X	gettimeofday(&t, &tz);
+X	for (i = 0; i < VECTORSIZE; i++)
+X		M.randomVector[i] = M.randomVector[i] + t.tv_sec & 0xffff;
+X}
+X
+Xrandom(limit)
+Xregister int	limit;
+X{
+X	register unsigned int	ret;
+X
+X	ret = M.randomVector[i1] = M.randomVector[i1] + M.randomVector[i2];
+X	if (++i1 >= VECTORSIZE)
+X		i1 = 0;
+X	if (++i2 >= VECTORSIZE)
+X		i2 = 0;
+X	return ret%limit;
+X}
+X
+XMWError(s)
+Xchar *s;
+X{
+X	StopWindow();
+X	fprintf(stderr, "MazeWar: %s\n", s);
+X	perror("MazeWar");
+X	exit(-1);
+X}
+xxFUNNYxx

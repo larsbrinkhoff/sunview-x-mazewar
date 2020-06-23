@@ -1,0 +1,979 @@
+Path: utzoo!utgpu!jarvis.csri.toronto.edu!mailrus!iuvax!rutgers!aramis.rutgers.edu!mcgrew
+From: mcg...@aramis.rutgers.edu (Charles Mcgrew)
+Newsgroups: comp.sources.sun
+Subject: v01i002:  Sunview/X Mazewar, Part03/06
+Message-ID: <May.5.13.33.16.1989.12492@aramis.rutgers.edu>
+Date: 5 May 89 17:33:18 GMT
+Organization: Rutgers Univ., New Brunswick, N.J.
+Lines: 969
+Approved: mcg...@aramis.rutgers.edu
+
+Submitted-by: ke...@wsl.dec.com
+Posting-number: Volume 1, Issue 2
+Archive-name: mazewar/part03
+
+#!/bin/sh
+sed 's/^X//' >./init.c << 'xxFUNNYxx'
+X/* $Header: init.c,v 1.13 88/09/07 14:37:21 kent Exp $ */
+X
+X/* 
+X * init.c - Initialization code for mazewar
+X * 
+X * Author:	Christopher A. Kent
+X * 		Western Research Laboratory
+X *	 	Digital Equipment Corporation
+X * Date:	Thu Oct  2 1986
+X */
+X
+X/***********************************************************
+XCopyright 1986 by Digital Equipment Corporation, Maynard, Massachusetts,
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital not be
+Xused in advertising or publicity pertaining to disstribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X/*
+X * $Log:	init.c,v $
+X * Revision 1.13  88/09/07  14:37:21  kent
+X * Portability changes for broadcasts.
+X * 
+X * Revision 1.12  88/08/25  09:57:53  kent
+X * Copyright and changed to allow the broadcast address to be set in Makefile.
+X * 
+X * Revision 1.11  88/06/15  16:36:31  kent
+X * Updated to use proper broadcast address.
+X * 
+X * Revision 1.10  87/07/28  13:51:16  kent
+X * Fixed a problem in netInit(); didn't handle the case when gethostname()
+X * returned something that couldn't be found in the host table.
+X * 
+X * Revision 1.9  87/03/31  14:42:14  kent
+X * Portability considerations, especially byteswapping to/from the net.
+X * 
+X * Revision 1.8  86/12/04  17:48:05  kent
+X * findDuke's return value pointed to something on the stack!
+X * 
+X * Revision 1.7  86/12/04  11:16:54  kent
+X * Handle name case when there's no comma in the gecos field.
+X * 
+X * Revision 1.6  86/12/04  11:14:23  kent
+X * Clean up join, so you can specify any host in a game, not just the duke.
+X * 
+X * Revision 1.5  86/12/03  13:31:25  kent
+X * 
+X * 
+X * Revision 1.4  86/12/03  10:00:45  kent
+X * Changes to allow multiple players per machine.
+X * 
+X * Revision 1.3  86/12/01  23:44:25  kent
+X * Housecleaning and documentation pass.
+X * 
+X * Revision 1.2  86/12/01  14:48:17  kent
+X * Changes for a realistic implementation of shooting.
+X * 
+X * Revision 1.1  86/11/26  16:57:42  kent
+X * Initial revision
+X * 
+X */
+X
+X#ifndef	lint
+Xstatic char rcs_ident[] = "$Header: init.c,v 1.13 88/09/07 14:37:21 kent Exp $";
+X#endif
+X
+X#include <sys/types.h>
+X#include <sys/socket.h>
+X#include <sys/time.h>
+X
+X#include <netinet/in.h>
+X
+X#include <errno.h>
+X#include <netdb.h>
+X#include <pwd.h>
+X#include <stdio.h>
+X#include <strings.h>
+X
+X#include "mazewar.h"
+X
+Xint	RV[VECTORSIZE] = {
+X	0031575, 0055455, 0147160, 0176745, 0173126, 0117426, 0033612, 0136020,
+X	0054013, 0167672, 0070252, 0033100, 0015700, 0113523, 0170465, 0024344,
+X	0175535, 0137325, 0126211, 0010207, 0173547, 0016071, 0056622, 0014433,
+X	0113225, 0047553, 0103024, 0110174, 0000124, 0173304, 0076700, 0104042,
+X	0135030, 0126234, 0175154, 0140123, 0167542, 0000405, 0035464, 0166537,
+X	0050260, 0167655, 0123715, 0176164, 0172206, 0140365, 0074606, 0075656,
+X	0176163, 0030017, 0022102, 0040051, 0154620, 0017144, 0073372
+X};
+X
+Xstatic MazeType mazeBits = {
+X	{ 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},	/* 0 */
+X	{ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+X	{ 1,0,1,1,1,1,1,0,1,1,1,1,0,1,1,1},
+X	{ 1,0,0,0,0,0,1,0,1,0,0,0,0,0,0,1},
+X
+X	{ 1,0,1,0,1,0,0,0,1,0,1,1,1,1,0,1},	/* 1 */
+X	{ 1,0,1,1,1,0,1,0,1,0,1,0,0,0,0,1},
+X	{ 1,0,0,0,0,0,1,0,0,0,1,0,1,1,0,1},
+X	{ 1,1,1,1,1,0,1,1,1,0,0,0,0,0,0,1},
+X
+X	{ 1,0,0,0,0,0,0,0,1,0,1,1,1,1,0,1},	/* 2 */
+X	{ 1,0,1,1,1,1,1,0,1,0,1,0,0,0,0,1},
+X	{ 1,0,0,0,0,0,1,0,0,0,1,0,1,1,1,1},
+X	{ 1,0,1,1,1,0,1,0,1,0,1,0,0,0,0,1},
+X
+X	{ 1,0,0,0,0,0,1,0,1,0,1,1,1,1,0,1},	/* 3 */
+X	{ 1,0,1,1,1,1,1,0,1,0,1,1,0,1,0,1},
+X	{ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+X	{ 1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1},
+X
+X	{ 1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1},	/* 4 */
+X	{ 1,1,1,0,1,0,1,0,1,0,1,0,1,1,0,1},
+X	{ 1,0,0,0,1,0,1,0,1,0,1,0,0,1,0,1},
+X	{ 1,0,1,1,1,0,1,0,1,0,1,1,0,0,0,1},
+X
+X	{ 1,0,0,0,0,0,0,0,1,0,1,0,0,1,0,1},	/* 5 */
+X	{ 1,0,1,1,1,1,1,1,1,0,1,0,1,1,0,1},
+X	{ 1,0,0,0,1,0,0,0,1,0,1,0,0,1,0,1},
+X	{ 1,0,1,0,1,0,1,0,1,0,1,1,0,0,0,1},
+X
+X	{ 1,0,1,0,1,0,1,0,1,0,0,0,0,1,0,1},	/* 6 */
+X	{ 1,0,1,0,1,0,1,0,1,0,1,0,1,1,0,1},
+X	{ 1,0,1,0,1,0,1,0,1,0,1,0,0,1,0,1},
+X	{ 1,0,1,0,0,0,1,0,1,0,1,1,0,1,0,1},
+X
+X	{ 1,0,1,0,1,0,1,0,0,0,1,0,0,0,0,1},	/* 7 */
+X	{ 1,0,1,0,1,0,1,0,1,0,1,1,1,1,0,1},
+X	{ 1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,1},
+X	{ 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
+X};
+X
+Xstatic char	*ratName = NULL;
+Xstatic char	*dukeName = NULL;
+Xstatic Sockaddr	dukeAddr;
+X
+XSockaddr	*resolveHost();
+X
+Xextern int	errno;
+X
+XMazeInit(argc, argv)
+Xchar	**argv;
+X{
+X	register RatId	ratId;
+X
+X	for (ratId = 0; ratId < MAXRATS; ratId++) {
+X		bzero((char *) M.ratcb.rats[ratId].name, NAMESIZE);
+X		M.ratcb.rats[ratId].playing = FALSE;
+X		R2d2[ratId].visible = FALSE;
+X	}
+X	M.invincible = FALSE;
+X	M.omniscient = FALSE;
+X	RatKillQ = (RatKillQ_t) NULL;
+X
+X	getMaze();
+X
+X	setRandom();
+X	InitRandom();
+X
+X	InitDisplay(argc, argv);
+X	getNames();
+X	NewPosition();
+X
+X	/*
+X	 * We don't do ShowPosition() or ShowView() here, but let the update
+X	 * routine in the window handler do it for the first time when
+X	 * the window is exposed.
+X	 */
+X
+X	netInit();
+X	StartDisplay();
+X	RatCursor();
+X}
+X
+X/* get the maze into memory */
+XgetMaze()
+X{
+X	int i, j;
+X
+X	for (i = 0; i < MAZEXMAX; i++)
+X		for (j = 0; j < MAZEYMAX; j++)
+X			if (mazeBits[i].y[MAZEYMAX-1 - j] == 1)
+X				M.maze[i].y[j] = TRUE;
+X			else
+X				M.maze[i].y[j] = FALSE;
+X}
+X
+X/* initialize the random vector */
+XsetRandom()
+X{
+X	register	i;
+X
+X	for (i = 0; i < VECTORSIZE; i++)
+X		M.randomVector[i] = RV[i];
+X}
+X
+X/* get player and duke host names */
+XgetNames()
+X{
+X	char		buf[128], *cp;
+X	char		*comma;
+X	Sockaddr	*duke;
+X	char		*getenv();
+X	struct passwd	*getpwuid();
+X
+X	buf[0] = '\0';
+X	printf("Welcome to Alto MazeWar!\n\n");
+X	printf("Your Name: ");
+X	gets(buf);
+X	if (buf[0] == '\0') {
+X		if ((cp = getenv("USERNAME")) != NULL)
+X			strcpy(buf, cp);
+X		else {
+X			strcpy(buf, (getpwuid(getuid()))->pw_gecos);
+X			comma = index(buf, ',');
+X			if (comma != NULL)
+X				*comma = '\0';
+X		}
+X	}
+X	ratName = malloc((unsigned) (strlen(buf) + 1));
+X	if (ratName == NULL)
+X		MWError("no mem for ratName");
+X	strcpy(ratName, buf);
+X	for (duke = NULL; duke == NULL; ) {
+X#ifndef	NO_BROADCAST
+X		printf("Duke Host (CR for any game): ");
+X#else
+X		printf("Duke Host: ");
+X#endif	NO_BROADCAST
+X		gets(buf);
+X		if (strlen(buf) == 0)
+X			break;
+X		dukeName = malloc((unsigned) (strlen(buf) + 1));
+X		if (dukeName == NULL)
+X			MWError("no mem for dukeName");
+X		strcpy(dukeName, buf);
+X
+X		/* check for valid duke name */
+X		duke = resolveHost(dukeName);
+X		if (duke == (Sockaddr *) NULL) {
+X			printf("Don't know host %s\n", dukeName);
+X			free(dukeName);
+X			dukeName = NULL;
+X		}
+X	}
+X	if ((dukeName != NULL) &&
+X	    (strlen(dukeName) != 0))
+X		bcopy((char *) duke, (char *) &dukeAddr, sizeof(Sockaddr));
+X}
+X
+XnetInit()
+X{
+X	register RatId	ratId;
+X	Boolean		joinGame();
+X	struct servent	*mazeService;
+X	u_short		port;
+X	Sockaddr	nullAddr;
+X	Sockaddr	*thisHost;
+X	char		buf[128];
+X
+X	mazeService = getservbyname(MAZESERVICE, "udp");
+X	if (mazeService != (struct servent *) NULL)
+X		M.mazePort = mazeService->s_port;
+X	else
+X		M.mazePort = htons(MAZEPORT);
+X
+X	gethostname(buf, sizeof(buf));
+X	if ((thisHost = resolveHost(buf)) == (Sockaddr *) NULL)
+X		MWError("who am I?");
+X	bcopy((caddr_t) thisHost, (caddr_t) &M.myAddr, sizeof(Sockaddr));
+X	nullAddr = M.myAddr;
+X	bzero((char *)&nullAddr.sin_addr, sizeof(nullAddr.sin_addr));
+X
+X	/* 
+X	 * Figure out which port I can use. Start at MAZEPORT and go
+X	 * up till there's a free one. We use nullAddr so that we
+X	 * can receive any incoming packet, in case there's some
+X	 * multi-homed nonsense. However, not binding may cause troubles
+X	 * if a specified duke is on a net that causes the source of the
+X	 * packets to be something other than what M.myAddr is...
+X	 * There also seems to be a problem with broadcasts not being
+X	 * accepted on sockets that have an address bound to them.
+X	 */
+X
+X	M.theSocket = socket(AF_INET, SOCK_DGRAM, 0);
+X	if (M.theSocket < 0)
+X		MWError("can't get socket");
+X
+X	for (port = ntohs(M.mazePort); ; port++) {
+X		nullAddr.sin_port = htons(port);
+X		if (bind(M.theSocket, &nullAddr, sizeof(nullAddr)) < 0)
+X			if (errno != EADDRINUSE)
+X				MWError("netInit binding");
+X			else
+X				continue;
+X		else
+X			break;
+X	}
+X	M.myAddr.sin_port = nullAddr.sin_port;
+X
+X	/*
+X	 * Now we can try to find a game to join; if none, start one.
+X	 */
+X
+X	if (!joinGame())
+X		startGame();
+X	printf("\n");
+X
+X	for (ratId = 0; ratId < MAXRATS; ratId++)
+X		TokenVisible(ratId);	/* oh oh say can we see? */
+X
+X}
+X
+X/* 
+X * Find a game. If the user specified a "duke" host, contact that
+X * duke. Otherwise broadcast to find a duke. Finally join that game.
+X */
+X
+XBoolean
+XjoinGame()
+X{
+X	Sockaddr	*duke, *findDuke();
+X	Boolean		join();
+X
+X	if ((dukeName == NULL) ||
+X	    (strlen(dukeName) == 0)) {
+X		duke = findDuke();
+X		if (duke != NULL)
+X			bcopy((char *) duke, (char *) &dukeAddr,
+X				sizeof(Sockaddr));
+X		else
+X			return FALSE;
+X	} else
+X		dukeAddr.sin_port = M.mazePort;
+X	return join(dukeAddr);
+X}
+X
+X/* 
+X * No game to join; set ourselves up as duke and wait for others to join.
+X */
+X
+XstartGame()
+X{
+X	RatId	i;
+X	RatInfo		rsp;
+X
+X	printf("starting a new game");
+X	M.myRatId = 0;
+X	M.score = 0;
+X	SetMyRatId(0);
+X	M.ratcb.dukeRat = M.myRatId;
+X	M.ratcb.rats[M.myRatId].addr = M.myAddr;
+X	rsp = &M.ratcb.rats[M.myRatId];
+X	rsp->playing = TRUE;
+X	rsp->xLoc = M.xloc;
+X	rsp->yLoc = M.yloc;
+X	rsp->dir = M.dir;
+X	rsp->score = M.score;
+X	rsp->addr = M.myAddr;
+X	strncpy(rsp->name, ratName, NAMESIZE);
+X	for (i = 1; i < MAXRATS; i++)
+X		M.ratcb.rats[i].playing = FALSE;
+X	M.duke = TRUE;
+X}
+X
+X/* 
+X * Join an existing game. Send a RAT_NEW packet and wait for a
+X * RAT_STATUS packet to come back with the other players. 
+X */
+X
+XBoolean
+Xjoin(addr)
+XSockaddr addr;
+X{
+X	RatPacket	b, r;
+X	RatNew		ratNew;
+X	RatId		id;
+X	RatStatus	status;
+X	int		i, ret;
+X	int		fds;
+X	struct timeval	timeout;
+X	Boolean		retVal = FALSE;
+X	
+X	b.type = RAT_NEW;
+X	ratNew = (RatNew) &b.body;
+X	ratNew->pass = RAT_PASSWORD;
+X	ratNew->xLoc = M.xloc;
+X	ratNew->yLoc = M.yloc;
+X	ratNew->dir = M.dir;
+X	ratNew->addr = M.myAddr;
+X	strncpy(ratNew->name, ratName, NAMESIZE);
+X	free(ratName);
+X	ConvertOutgoing(&b);
+X
+X	for (i = 0; i < 5; i++) {
+X		int fromlen;
+X		struct sockaddr from;
+X
+X		if (sendto(M.theSocket, (char *) &b, sizeof(b), 0, &addr,
+X			   sizeof(addr)) < 0)
+X			MWError("join sendto");
+X		fds = (1<<M.theSocket);
+X		timeout.tv_sec = 5;
+X		timeout.tv_usec = 0;
+X		ret = select(32, &fds, NULL, NULL, &timeout);
+X		if (ret < 0)
+X			MWError("join select");
+X		if (ret == 0)
+X			continue;
+X		if (recvfrom(M.theSocket, (char *) &r, sizeof(r),
+X				0, &from, &fromlen) < 0)
+X			MWError("join status receive");
+X		ConvertIncoming(&r);
+X		if (r.type != RAT_STATUS)
+X			continue;
+X
+X		/* see if I got into the game */
+X		status = &r.body;
+X		for (id = 0; id < MAXRATS; id++)
+X			if (status->rats[id].playing &&
+X			    !bcmp(&status->rats[id].addr, &M.myAddr,
+X				  sizeof(M.myAddr))) {
+X				M.myRatId = id;
+X				break;
+X			}
+X
+X		/* 
+X		 * Didn't find me; this guy must not really be the
+X		 * duke. Contact the duke of the game and get added.
+X		 */
+X
+X		if (id == MAXRATS) {
+X			addr = status->rats[status->dukeRat].addr;
+X			continue;
+X		}
+X		
+X		bcopy((char *) status, (char *) &M.ratcb, sizeof(RatCb));
+X		retVal = TRUE;
+X		break;
+X	}
+X	return retVal;
+X}
+X
+X/* 
+X * Find a "duke" host. Broadcast a RAT_SURVEY packet to MAZEPORT.
+X *
+X * The broadcast is done just on the network that is associated
+X * with the name returned by gethostname(); for most workstations
+X * this is accurate, but multi-homed hosts may miss some games. Oh
+X * well.
+X *
+X * After the broadcast, collect responses. This goes on until no packets
+X * have been received for 5 seconds or the max number have been seen
+X *
+X * All players are supposed to respond. If a packet comes from a non-duke,
+X * the information is inspected to send a RAT_SURVEY directly to him.
+X * Otherwise, the answer is saved. When all the answers are in, the
+X * first game with an empty slot is chosen.
+X *
+X * If all players were listening on MAZEPORT, we could probably do
+X * without the resending nonsense. Since the duke might not be on
+X * MAZEPORT, this is necessary. It also adds a certain robustness, in
+X * case the duke drops the packet or somesuch. Care is taken elsewhere
+X * (ratLeft() and ratDoctor())to make sure there are always players
+X * listening on MAZEPORT.
+X */
+X
+Xstruct answer {
+X	Sockaddr	source;
+X	int		srclen;
+X	RatPacket	packet;
+X};
+X
+XSockaddr *
+XfindDuke()
+X{
+X#ifndef	NO_BROADCAST
+X	register int	i;
+X	int		cnt = 0;
+X	int		maxAnswers = 10;
+X	static Sockaddr	rmtAddr;
+X	struct	timeval	timeout;
+X	RatPacket	*b = (RatPacket *) malloc(sizeof(RatPacket));
+X	struct answer	*answers;
+X	int		fds, fd = M.theSocket;
+X	int		ret, cc;
+X	Boolean		duke(), freeSlot();
+X	struct in_addr	inet_makeaddr();
+X
+X	printf("Checking out available games..."); fflush(stdout);
+X
+X#ifdef	SO_BROADCAST
+X#ifdef	BSD_43
+X	{
+X	int	one = 1;
+X
+X	if (setsockopt(M.theSocket, SOL_SOCKET, SO_BROADCAST, 
+X				&one, sizeof one) < 0)
+X		MWError("can't get broadcast permission");
+X	}
+X#else	BSD_43
+X	if (setsockopt(M.theSocket, SOL_SOCKET, SO_BROADCAST, NULL, 0) < 0)
+X		MWError("can't get broadcast permission");
+X#endif	BSD_43
+X#endif	SO_BROADCAST
+X
+X	rmtAddr = M.myAddr;
+X	rmtAddr.sin_addr = inet_makeaddr(inet_netof(M.myAddr.sin_addr),
+X					BROAD_ADDR);	/* from Makefile */
+X	rmtAddr.sin_port = M.mazePort;
+X
+X	answers = (struct answer *)
+X		malloc((unsigned) (maxAnswers * sizeof(*answers)));
+X
+X	setupSurvey(b);
+X	ConvertOutgoing(b);
+X	if (sendto(fd, (char *) b, sizeof(*b), 0, &rmtAddr, sizeof(rmtAddr)) < 0)
+X		fprintf(stderr, "findDuke survey can't broadcast\n");
+X
+X	while (1) {
+X		fds = (1<<fd);
+X		timeout.tv_sec = 5;
+X		timeout.tv_usec = 0;
+X		ret = select(32, &fds, NULL, NULL, &timeout);
+X		if (ret < 0)
+X			MWError("findDuke select");
+X		if (ret == 0)
+X			break;
+X		answers[cnt].srclen = sizeof(Sockaddr);
+X		if (recvfrom(fd, &answers[cnt].packet, sizeof(RatPacket), 0,
+X			     &answers[cnt].source, &answers[cnt].srclen) < 0)
+X			MWError("findDuke recv");
+X		ConvertIncoming(&answers[cnt].packet);
+X		if (answers[cnt].packet.type != RAT_STATUS)
+X			continue;
+X		if (!duke(&answers[cnt])) {
+X			RatStatus	rs;
+X
+X			rs = (RatStatus) &answers[cnt].packet.body;
+X			setupSurvey(b);
+X			ConvertOutgoing(b);
+X			if (sendto(fd, b, sizeof(*b), 0,
+X				   &rs->rats[rs->dukeRat].addr,
+X				   sizeof(rs->rats[rs->dukeRat].addr)) < 0)
+X				fprintf(stderr, 
+X					"findDuke resend can't broadcast");
+X			continue;
+X		}
+X		if (freeSlot(&answers[cnt]))
+X			if (++cnt == maxAnswers)
+X				break;
+X	}
+X
+X	for (i = 0; i < cnt; i++)
+X		if (duke(&answers[i])) {
+X			rmtAddr = answers[i].source;
+X			break;
+X		}
+X	free((char *) answers);
+X	free((char *) b);
+X	if (i == cnt)
+X		return (Sockaddr *) NULL;
+X	else
+X		return &rmtAddr;
+X#else	NO_BROADCAST
+X	return (Sockaddr *) NULL;
+X#endif	NO_BROADCAST
+X}
+X
+X/* 
+X * See if the game contains any empty slots for players.
+X */
+X
+XBoolean
+XfreeSlot(a)
+Xstruct answer	*a;
+X{
+X	RatStatus	test;
+X	RatId		id;
+X
+X	test = (RatStatus) &a->packet.body;
+X	for (id = 0; id < MAXRATS; id++)
+X		if (!test->rats[id].playing)
+X			return TRUE;
+X	return FALSE;
+X}
+X
+X/* 
+X * Fill in the RAT_SURVEY packet.
+X */
+X
+XsetupSurvey(b)
+XRatPacket *b;
+X{
+X	RatNew	ratSurvey;
+X
+X	b->type = RAT_SURVEY;
+X	ratSurvey = (RatNew) &b->body;
+X	ratSurvey->pass = RAT_PASSWORD;
+X}
+X
+X/* 
+X * Check if this guy's the duke of his game.
+X */
+X
+XBoolean
+Xduke(a)
+Xstruct answer	*a;
+X{
+X	RatStatus	test;
+X
+X	test = (RatStatus) &a->packet.body;
+X	return !bcmp((char *) &test->rats[test->dukeRat].addr.sin_addr,
+X			(char *) &a->source.sin_addr, sizeof(struct in_addr));
+X}
+X
+X/*
+X * Resolve the specified host name into an internet address.  The "name" may
+X * be either a character string name, or an address in the form a.b.c.d where
+X * the pieces are octal, decimal, or hex numbers.  Returns a pointer to a
+X * sockaddr_in struct (note this structure is statically allocated and must
+X * be copied), or NULL if the name is unknown.
+X */
+X
+XSockaddr *
+XresolveHost(name)
+Xregister char *name;
+X{
+X	register struct hostent *fhost;
+X	struct in_addr fadd;
+X	static Sockaddr sa;
+X
+X	if ((fhost = gethostbyname(name)) != NULL) {
+X		sa.sin_family = fhost->h_addrtype;
+X		sa.sin_port = 0;
+X		bcopy(fhost->h_addr, &sa.sin_addr, fhost->h_length);
+X	} else {
+X		fadd.s_addr = inet_addr(name);
+X		if (fadd.s_addr != -1) {
+X			sa.sin_family = AF_INET;	/* grot */
+X			sa.sin_port = 0;
+X			sa.sin_addr.s_addr = fadd.s_addr;
+X		} else
+X			return(NULL);
+X	}
+X	return(&sa);
+X}
+xxFUNNYxx
+sed 's/^X//' >./mazefind.6 << 'xxFUNNYxx'
+X.TH MAZEFIND 6
+X.SH NAME
+Xmazefind \- discover current MazeWar games
+X.SH SYNTAX
+X.B /usr/games/mazefind
+X.SH DESCRIPTION
+X.I Mazefind
+Xbroadcasts a query on the net to discover what MazeWar games are being
+Xplayed, and prints out useful information about them.
+XIt's useful for discovering what games might be interesting to connect to
+Xon a distant network.
+X.SH "SEE ALSO"
+Xmazewar(6)
+xxFUNNYxx
+sed 's/^X//' >./mazewar.h << 'xxFUNNYxx'
+X/* $Header: mazewar.h,v 1.7 88/08/25 09:59:51 kent Exp $ */
+X
+X/* 
+X * mazewar.h - Definitions for MazeWar
+X * 
+X * Author:	Christopher A. Kent
+X * 		Western Research Laboratory
+X * 		Digital Equipment Corporation
+X * Date:	Wed Sep 24 1986
+X */
+X
+X/***********************************************************
+XCopyright 1986 by Digital Equipment Corporation, Maynard, Massachusetts,
+X
+X                        All Rights Reserved
+X
+XPermission to use, copy, modify, and distribute this software and its 
+Xdocumentation for any purpose and without fee is hereby granted, 
+Xprovided that the above copyright notice appear in all copies and that
+Xboth that copyright notice and this permission notice appear in 
+Xsupporting documentation, and that the names of Digital not be
+Xused in advertising or publicity pertaining to disstribution of the
+Xsoftware without specific, written prior permission.  
+X
+XDIGITAL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING
+XALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL
+XDIGITAL BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR
+XANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+XWHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+XARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
+XSOFTWARE.
+X
+X******************************************************************/
+X
+X/*
+X * $Log:	mazewar.h,v $
+X * Revision 1.7  88/08/25  09:59:51  kent
+X * Copyright.
+X * 
+X * Revision 1.6  88/08/11  11:37:59  kent
+X * Fix a type clash with X11 include files. We need a Boolean to be a short
+X * for alignment purposes, but X11 typedefs it to be a char. 
+X * 
+X * Revision 1.5  87/03/31  14:42:32  kent
+X * Portability considerations, especially byteswapping to/from the net.
+X * 
+X * Revision 1.4  86/12/03  10:00:54  kent
+X * Changes to allow multiple players per machine.
+X * 
+X * Revision 1.3  86/12/01  23:45:53  kent
+X * Housecleaning and documentation pass.
+X * 
+X * Revision 1.2  86/12/01  14:47:52  kent
+X * Changes for a realistic implementation of shooting.
+X * 
+X * Revision 1.1  86/11/26  16:58:19  kent
+X * Initial revision
+X * 
+X * Revision 1.1  86/11/26  16:56:33  kent
+X * Initial revision
+X * 
+X */
+X
+X/* fundamental constants */
+X
+X#ifndef	TRUE
+X#define	TRUE		1
+X#define	FALSE		0
+X#endif	TRUE
+X
+X#define	MAZEXMAX	32
+X#define	MAZEYMAX	16
+X#define	MAXRATS		8
+X#define	VECTORSIZE	55
+X#define	NAMESIZE	20
+X#define	NDIRECTION	4
+X#define	NORTH		0
+X#define	SOUTH		1
+X#define	EAST		2
+X#define	WEST		3
+X#define	NVIEW		4
+X#define	LEFT		0
+X#define	RIGHT		1
+X#define	REAR		2
+X#define	FRONT		3
+X
+X/* types */
+X
+Xtypedef	struct sockaddr_in		Sockaddr;
+X#define	Boolean	short		/* don't clash with X11 toolkit */
+Xtypedef struct {Boolean	y[MAZEYMAX];}	MazeRow;
+Xtypedef	MazeRow				MazeType
+X	[MAZEXMAX];
+Xtypedef	MazeRow				*MazeTypePtr;
+Xtypedef	short				Direction;
+Xtypedef	struct {short	x, y; }		XYpoint;
+Xtypedef	struct {XYpoint	p1, p2;}	XYpair;
+Xtypedef	struct {short	xcor, ycor;}	XY;
+X
+Xtypedef	struct {short	bits[16];}	BitCell;
+X
+Xtypedef	short				Loc;
+Xtypedef	unsigned long			Score;
+Xtypedef	char				RatName
+X	[NAMESIZE];
+Xtypedef	long				RatId;
+X
+Xtypedef	struct {
+X	RatId	ratId;
+X	Score	score;
+X	Loc	xLoc, yLoc;
+X	Direction	dir;
+X}					AqRatLocation;
+Xtypedef	AqRatLocation *			RatLocation;
+X
+Xtypedef struct {
+X	RatId	ratId;
+X	Loc	xLoc, yLoc;
+X	Direction	dir;
+X}					AqRatKill;
+Xtypedef	AqRatKill *			RatKill;
+X
+Xstruct _AqRatKillQ {
+X	AqRatKill	thisOne;
+X	struct _AqRatKillQ	*nextOne;
+X	struct timeval	shotHits;
+X};
+Xtypedef struct _AqRatKillQ		AqRatKillQ;
+Xtypedef	AqRatKillQ *			RatKillQ_t;
+X
+Xtypedef	struct {
+X	RatId	ratId;
+X	RatId	killedBy;
+X}					AqRatDead;
+Xtypedef	AqRatDead *			RatDead;
+X
+Xtypedef	struct {
+X	Sockaddr	addr;
+X	short		pass;
+X	Loc		xLoc, yLoc;
+X	Direction	dir;
+X	RatName		name;
+X}					AqRatNew;
+Xtypedef	AqRatNew *			RatNew;
+X
+Xtypedef	struct {
+X	RatId	ratId;
+X}					AqRatGone;
+Xtypedef	AqRatGone *			RatGone;
+X
+Xtypedef	struct {
+X	RatId	ratId;
+X}					AqRatQuery;
+Xtypedef	AqRatQuery *			RatQuery;
+X
+Xtypedef struct {
+X	RatId	ratId;
+X}					AqRatAlive;
+Xtypedef	AqRatAlive *			RatAlive;
+X
+Xtypedef struct {
+X	RatId	ratId;
+X}					AqRatMove;
+Xtypedef	AqRatMove *			RatMove;
+X
+Xtypedef	struct {
+X	Sockaddr	addr;
+X	Score		score;
+X	Boolean		playing;
+X	Loc		xLoc, yLoc;
+X	Direction	dir;
+X	RatName		name;
+X}					RatObject;
+Xtypedef	RatObject *			RatInfo;
+X
+Xtypedef	struct {
+X	RatId		dukeRat;
+X	RatObject	rats[MAXRATS];
+X}					RatCb;
+Xtypedef	RatCb *				RatStatus;
+X
+Xtypedef	long				TokenId;
+X
+Xtypedef	struct {
+X	Boolean	visible;
+X	Loc	x, y;
+X	short	distance;
+X	TokenId	tokenId;
+X}					RatAppearance;
+Xtypedef	RatAppearance			R2d2_t
+X	[MAXRATS];
+Xtypedef	RatAppearance *			RatLook;
+X
+Xtypedef	struct {TokenId	t[NDIRECTION];}	RelativeTokens
+X	[NDIRECTION];
+X
+Xtypedef	struct {
+X	Boolean	send;
+X	Boolean	rcvd;
+X	short	count;
+X}					RatNetHealth;
+Xtypedef	RatNetHealth			RatHealth
+X	[MAXRATS];
+X
+X/* network stuff */
+X
+X#define	MAZEPORT	1111
+X#define	MAZESERVICE	"mazewar"
+X
+X#define	RAT_LOCATION	1
+X#define	RAT_KILL	2
+X#define	RAT_DEAD	3
+X#define	RAT_STATUS	4
+X#define	RAT_NEW		5
+X#define	RAT_GOING	6
+X#define	RAT_QUERY	7
+X#define	RAT_ALIVE	8
+X#define	RAT_SURVEY	9
+X#define	RAT_MOVE	10
+X#define	RAT_PASSWORD	032610
+X
+Xtypedef	struct {
+X	long	type;
+X	RatCb	body;			/* largest type above */
+X}					RatPacket;
+X
+X/* variables "exported" by the mazewar "module" */
+X
+Xstruct _mazewar {
+X	Direction	dir;		/* which way am I looking? */
+X	Direction	dirPeek;	/* direction for peek display */
+X	Boolean	duke;			/* I am the duke */
+X	Sockaddr	dukeAddr;	/* where is the duke? */
+X	Boolean	invincible;		/* can I be killed? */
+X	MazeType	maze;		/* the maze in bits */
+X	long		mazePort;	/* the port to keep busy */
+X	Sockaddr	myAddr;		/* my net address */
+X	RatId	myRatId;		/* my index into the ratcb */
+X	Boolean	omniscient;		/* can I see everyone? */
+X	Boolean	peeking;		/* peeking in progress */
+X	int	theSocket;		/* the main socket */
+X	short	randomVector[VECTORSIZE];
+X	RatCb	ratcb;			/* my copy of the world */
+X	Score	score;			/* my total so far */
+X	Loc	xloc;			/* current x location */
+X	Loc	yloc;			/* current y location */
+X	Loc	xPeek;			/* x for peek display */
+X	Loc	yPeek;			/* y for peek display */
+X}M;					/* expediency wins out */
+X
+X/* events */
+X
+X#define	EVENT_A		1		/* user pressed "A" */
+X#define	EVENT_S		2		/* user pressed "S" */
+X#define	EVENT_D		3		/* user pressed "D" */
+X#define	EVENT_F		4		/* user pressed "F" */
+X#define	EVENT_BAR	5		/* user pressed space bar */
+X#define	EVENT_I		6		/* user pressed "I" */
+X#define	EVENT_K		7		/* user pressed "K" */
+X#define	EVENT_O		8		/* user pressed "O" */
+X#define	EVENT_L		9		/* user pressed "L" */
+X#define	EVENT_LEFT_D	10		/* user pressed left mouse button */
+X#define	EVENT_LEFT_U	11		/* user released l.m.b */
+X#define	EVENT_MIDDLE_D	12		/* user pressed middle button */
+X#define	EVENT_RIGHT_D	13		/* user pressed right button */
+X#define	EVENT_RIGHT_U	14		/* user released r.m.b */
+X#define	EVENT_NETWORK	15		/* incoming network packet */
+X#define	EVENT_INT	16		/* user pressed interrupt key */
+X#define	EVENT_TIMEOUT	17		/* nothing happened! */
+X
+Xtypedef	struct {
+X	short		eventType;
+X	RatPacket	*eventDetail;	/* for incoming data */
+X	Sockaddr	eventSource;
+X}					MWEvent;
+X
+XR2d2_t		R2d2;
+XRatKillQ_t	RatKillQ;
+X
+Xvoid	NextEvent();
+X	
+Xchar	*malloc();
+xxFUNNYxx
